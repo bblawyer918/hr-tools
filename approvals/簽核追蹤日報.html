@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>簽核追蹤日報</title>
+<link rel="stylesheet" href="../lib/common.css">
+<style>
+  #add input { width: 130px; }
+  #list td .btn { padding: 2px 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>簽核追蹤日報</h1>
+  <p class="sub">追蹤還沒簽完的單據：卡在誰手上、等了幾天。可以匯入簽核紀錄 Excel，也可以手動新增。資料只存在這台電腦的瀏覽器裡，不會上傳；換電腦前請先「匯出 Excel」。</p>
+
+  <div class="card noprint">
+    <div class="drop" id="drop">把簽核紀錄 Excel 拖到這裡，或<b>點這裡選檔案</b>（欄位見 samples/簽核紀錄_範本.xlsx）</div>
+    <input type="file" id="file" accept=".xlsx,.xls,.csv" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <span class="label">匯入方式</span>
+      <select id="mode"><option value="merge">合併（同單號以檔案為準）</option><option value="replace">整批取代</option></select>
+      <span class="label">基準日</span><input type="date" id="base">
+      <span class="label">超過</span><input type="number" id="limit" min="1" value="3"><span class="label">天算逾期</span>
+      <label class="label"><input type="checkbox" id="workday" checked> 只算上班日（扣週末、國定假日）</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="label">簽核人</span><select id="who"><option value="">全部</option></select>
+      <button class="btn primary" id="btnCopy">複製今日催簽訊息</button><span class="label" id="copied"></span>
+      <button class="btn" id="btnExport">匯出 Excel</button>
+      <button class="btn" onclick="window.print()">列印</button>
+      <button class="btn danger" id="btnClear">清空本機資料</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card noprint">
+    <h2>手動新增</h2>
+    <div class="row" id="add">
+      <input id="a_no" placeholder="單號（空白自動編）">
+      <input id="a_type" placeholder="單據名稱" list="types">
+      <input id="a_who" placeholder="申請人">
+      <input id="a_site" placeholder="社區／部門">
+      <input type="date" id="a_date">
+      <input id="a_app" placeholder="目前簽核人" list="apps">
+      <button class="btn primary" id="btnAdd">新增</button>
+    </div>
+    <datalist id="types"><option>請假單</option><option>補打卡單</option><option>加班單</option><option>調班申請單</option><option>離職申請單</option><option>薪資異動單</option></datalist>
+    <datalist id="apps"></datalist>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="card"><h2 id="title"></h2><div class="stats" id="stats"></div></div>
+    <div class="card"><h2>各簽核人待簽</h2><div class="scroll"><table id="byWho"></table></div></div>
+    <div class="card">
+      <h2>待簽核清單（等最久的在上面）</h2>
+      <div class="scroll"><table id="list"></table></div>
+      <p class="note">「等待天數」從申請日算到基準日。簽完後按「核准」或「退回」，完成日記為基準日；按「改簽核人」可以把單子轉給下一關。</p>
+    </div>
+    <div class="card"><h2>近 7 天已完成</h2><div class="scroll"><table id="done"></table></div></div>
+  </div>
+</div>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script src="../lib/common.js"></script>
+<script>
+  var $ = HR.$, esc = HR.esc, KEY = 'hr-approvals-v1';
+  var ALIAS = { no: ['單號', '表單編號', '編號'], type: ['單據名稱', '表單名稱', '單據', '表單'], who: ['申請人', '姓名'], co: ['公司'], site: ['社區', '部門', '單位'],
+    date: ['申請日期', '申請日', '送出日期'], app: ['目前簽核人', '簽核人', '待簽核人'], status: ['狀態', '簽核狀態'], fin: ['完成日期', '簽核完成日', '結案日'], note: ['備註'] };
+  var recs = HR.store(KEY) || [];
+  $('base').value = HR.iso(HR.today());
+  ['limit', 'workday'].forEach(function (k) { var v = HR.store('hr-approvals-' + k); if (v !== null) $(k)[k === 'workday' ? 'checked' : 'value'] = v; });
+
+  function save() { HR.store(KEY, recs); }
+  function norm(s) { s = HR.txt(s); return /核准|同意|通過|完成/.test(s) ? '已核准' : /退|駁|否決|撤/.test(s) ? '已退回' : '待簽核'; }
+
+  HR.bindDrop('drop', 'file', function (f) {
+    HR.readWorkbook(f, function (err, wb) {
+      if (err) return HR.msg('msg', '讀檔失敗：' + esc(err.message), true);
+      var t = HR.findTable(wb, ALIAS, ['type', 'date'], ['簽核紀錄']);
+      if (!t) return HR.msg('msg', '找不到「單據名稱」和「申請日期」欄位，請對照範本。', true);
+      var got = t.rows.map(function (r, i) {
+        var d = HR.toDate(r.date), fin = HR.toDate(r.fin);
+        return { no: HR.txt(r.no) || 'X' + (i + 1), type: HR.txt(r.type), who: HR.txt(r.who), co: HR.txt(r.co), site: HR.txt(r.site), date: d ? HR.iso(d) : '',
+          app: HR.txt(r.app), status: norm(r.status), fin: fin ? HR.iso(fin) : '', note: HR.txt(r.note) };
+      });
+      var bad = got.filter(function (r) { return !r.date; }).length;
+      if ($('mode').value === 'replace') recs = got;
+      else { var idx = {}; recs.forEach(function (r, i) { idx[r.no] = i; }); got.forEach(function (r) { if (idx[r.no] !== undefined) recs[idx[r.no]] = r; else recs.push(r); }); }
+      save();
+      $('drop').innerHTML = '已匯入：<b>' + esc(f.name) + '</b>（' + got.length + ' 筆，點這裡再匯入）';
+      HR.msg('msg', bad ? bad + ' 筆申請日期讀不到，等待天數會顯示「?」，請回 Excel 補日期。' : '', !!bad);
+      render();
+    });
+  });
+
+  function waited(r, base) {
+    var d = HR.toDate(r.date); if (!d) return null;
+    return $('workday').checked ? HR.workdaysBetween(d, base) : Math.max(0, HR.daysBetween(d, base));
+  }
+  function base() { return HR.toDate($('base').value) || HR.today(); }
+
+  function render() {
+    var b = base(), lim = +$('limit').value || 3, who = $('who').value;
+    var apps = {}; recs.forEach(function (r) { if (r.app) apps[r.app] = 1; });
+    var names = Object.keys(apps).sort();
+    $('who').innerHTML = '<option value="">全部</option>' + names.map(function (n) { return '<option' + (n === who ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+    $('apps').innerHTML = names.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+    if (!recs.length) { $('out').classList.add('hidden'); return; }
+    var pend = recs.filter(function (r) { return r.status === '待簽核' && (!who || r.app === who); })
+      .map(function (r) { return { r: r, w: waited(r, b) }; })
+      .sort(function (a, c) { return (c.w === null ? 1e9 : c.w) - (a.w === null ? 1e9 : a.w); });
+    var over = pend.filter(function (p) { return p.w === null || p.w > lim; });
+    var bIso = HR.iso(b), weekAgo = HR.iso(HR.addDays(b, -6));
+    var done = recs.filter(function (r) { return r.status !== '待簽核' && r.fin && r.fin >= weekAgo && r.fin <= bIso && (!who || r.app === who); });
+    var todayNew = recs.filter(function (r) { return r.date === bIso && (!who || r.app === who); }).length;
+    var avg = done.length ? done.reduce(function (a, r) { var x = HR.daysBetween(HR.toDate(r.date), HR.toDate(r.fin)); return a + Math.max(0, x || 0); }, 0) / done.length : null;
+    $('title').textContent = HR.ymd(b) + '（' + HR.WK[b.getDay()] + '）簽核日報' + (who ? '｜' + who : '');
+    $('stats').innerHTML = [['待簽核', pend.length + ' 件', ''], ['逾期', over.length + ' 件', '等超過 ' + lim + (($('workday').checked) ? ' 個上班日' : ' 天'), over.length > 0],
+      ['今天新送出', todayNew + ' 件', ''], ['近 7 天完成', done.length + ' 件', avg === null ? '' : '平均 ' + HR.fmt(avg) + ' 天簽完'],
+      ['最久一件', pend.length && pend[0].w !== null ? pend[0].w + ' 天' : '—', pend.length ? pend[0].r.no + ' ' + pend[0].r.type : '']]
+      .map(function (c) { return '<div class="stat' + (c[3] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="k">' + esc(c[2]) + '</div></div>'; }).join('');
+    // 各簽核人
+    var g = {}; pend.forEach(function (p) { var k = p.r.app || '（未填）'; g[k] = g[k] || { n: 0, over: 0, max: 0 }; g[k].n++; if (p.w === null || p.w > lim) g[k].over++; g[k].max = Math.max(g[k].max, p.w || 0); });
+    var gk = Object.keys(g).sort(function (a, c) { return g[c].over - g[a].over || g[c].n - g[a].n; });
+    $('byWho').innerHTML = '<tr><th class="l">簽核人</th><th>待簽</th><th>逾期</th><th>最久等幾天</th></tr>' + (gk.length ? gk.map(function (k) {
+      return '<tr><td class="l">' + esc(k) + '</td><td>' + g[k].n + '</td><td class="' + (g[k].over ? 'bad' : '') + '">' + g[k].over + '</td><td>' + g[k].max + '</td></tr>'; }).join('') : '<tr><td colspan="4">沒有待簽的單據。</td></tr>');
+    $('list').innerHTML = '<tr><th class="l">單號</th><th class="l">單據</th><th class="l">申請人</th><th class="l">社區</th><th>申請日</th><th>等待天數</th><th class="l">目前簽核人</th><th class="l">備註</th><th class="noprint">處理</th></tr>' +
+      (pend.length ? pend.map(function (p) {
+        var r = p.r, cls = p.w === null || p.w > lim ? 'bad' : p.w >= lim - 1 ? 'mid' : '';
+        return '<tr><td class="l">' + esc(r.no) + '</td><td class="l">' + esc(r.type) + '</td><td class="l">' + esc(r.who) + '</td><td class="l">' + esc(r.site) + '</td><td>' + esc(r.date ? HR.ymd(HR.toDate(r.date)).slice(5) : '?') + '</td>' +
+          '<td class="' + cls + '">' + (p.w === null ? '?' : p.w) + '</td><td class="l">' + esc(r.app) + '</td><td class="l">' + esc(r.note) + '</td>' +
+          '<td class="noprint" style="white-space:nowrap"><button class="btn" data-a="ok" data-no="' + esc(r.no) + '">核准</button><button class="btn" data-a="back" data-no="' + esc(r.no) + '">退回</button><button class="btn" data-a="pass" data-no="' + esc(r.no) + '">改簽核人</button></td></tr>';
+      }).join('') : '<tr><td colspan="9">沒有待簽的單據。</td></tr>');
+    $('done').innerHTML = '<tr><th class="l">單號</th><th class="l">單據</th><th class="l">申請人</th><th>申請日</th><th>完成日</th><th class="l">結果</th><th class="l">簽核人</th></tr>' +
+      (done.length ? done.sort(function (a, c) { return c.fin.localeCompare(a.fin); }).map(function (r) {
+        return '<tr><td class="l">' + esc(r.no) + '</td><td class="l">' + esc(r.type) + '</td><td class="l">' + esc(r.who) + '</td><td>' + esc(r.date.slice(5)) + '</td><td>' + esc(r.fin.slice(5)) + '</td><td class="l"><span class="tag ' + (r.status === '已核准' ? 'ok' : 'mid') + '">' + r.status + '</span></td><td class="l">' + esc(r.app) + '</td></tr>';
+      }).join('') : '<tr><td colspan="7">近 7 天沒有完成的單據。</td></tr>');
+    $('out').classList.remove('hidden');
+    return { pend: pend, over: over, lim: lim, b: b };
+  }
+
+  // 處理按鈕：核准／退回／改簽核人（改簽核人用欄內輸入框，不跳視窗）
+  $('list').onclick = function (e) {
+    var bt = e.target.closest('[data-a]'); if (!bt) return;
+    var r = recs.filter(function (x) { return x.no === bt.dataset.no; })[0]; if (!r) return;
+    if (bt.dataset.a === 'pass') {
+      var td = bt.parentNode;
+      td.innerHTML = '<input list="apps" placeholder="新簽核人" style="width:110px"><button class="btn primary">確定</button>';
+      td.querySelector('input').focus();
+      td.querySelector('button').onclick = function () { var v = HR.txt(td.querySelector('input').value); if (v) { r.app = v; save(); } render(); };
+      return;
+    }
+    r.status = bt.dataset.a === 'ok' ? '已核准' : '已退回'; r.fin = HR.iso(base()); save(); render();
+  };
+  $('btnAdd').onclick = function () {
+    var type = HR.txt($('a_type').value), d = $('a_date').value || HR.iso(HR.today()), app = HR.txt($('a_app').value);
+    if (!type || !app) return HR.msg('msg', '至少要填「單據名稱」和「目前簽核人」。', true);
+    var no = HR.txt($('a_no').value);
+    if (!no) { var n = 1; while (recs.some(function (r) { return r.no === 'M' + ('000' + n).slice(-4); })) n++; no = 'M' + ('000' + n).slice(-4); }
+    if (recs.some(function (r) { return r.no === no; })) return HR.msg('msg', '單號 ' + esc(no) + ' 已經存在。', true);
+    recs.push({ no: no, type: type, who: HR.txt($('a_who').value), co: '', site: HR.txt($('a_site').value), date: d, app: app, status: '待簽核', fin: '', note: '' });
+    save(); HR.msg('msg', '已新增 ' + esc(no) + '。');
+    ['a_no', 'a_type', 'a_who', 'a_site', 'a_app'].forEach(function (k) { $(k).value = ''; });
+    render();
+  };
+  ['base', 'who'].forEach(function (k) { $(k).onchange = render; });
+  $('limit').onchange = function () { HR.store('hr-approvals-limit', $('limit').value); render(); };
+  $('workday').onchange = function () { HR.store('hr-approvals-workday', $('workday').checked); render(); };
+  $('btnClear').onclick = function () {
+    var b = $('btnClear');
+    if (b.dataset.sure) { recs = []; save(); delete b.dataset.sure; b.textContent = '清空本機資料'; HR.msg('msg', '已清空。'); render(); }
+    else { b.dataset.sure = 1; b.textContent = '再按一次確定清空'; setTimeout(function () { delete b.dataset.sure; b.textContent = '清空本機資料'; }, 4000); }
+  };
+
+  $('btnCopy').onclick = function () {
+    var x = render(); if (!x) return HR.msg('msg', '還沒有資料。', true);
+    var unit = $('workday').checked ? ' 個上班日' : ' 天';
+    var t = '【簽核日報 ' + HR.ymd(x.b) + '（' + HR.WK[x.b.getDay()] + '）】\n待簽核 ' + x.pend.length + ' 件，其中逾期（超過 ' + x.lim + unit + '）' + x.over.length + ' 件。\n';
+    var g = {}; x.pend.forEach(function (p) { (g[p.r.app || '（未填簽核人）'] = g[p.r.app || '（未填簽核人）'] || []).push(p); });
+    Object.keys(g).sort(function (a, c) { return g[c].length - g[a].length; }).forEach(function (k) {
+      t += '\n▍' + k + '（' + g[k].length + ' 件）\n' + g[k].map(function (p) { return '  ' + (p.w === null || p.w > x.lim ? '⚠️ ' : '・') + p.r.type + '｜' + p.r.who + (p.r.site ? '（' + p.r.site + '）' : '') + '｜已等 ' + (p.w === null ? '?' : p.w) + unit; }).join('\n') + '\n';
+    });
+    t += '\n麻煩各位主管撥空簽核，謝謝！';
+    HR.copyText(t, function () { $('copied').textContent = '已複製'; });
+  };
+  $('btnExport').onclick = function () {
+    if (!recs.length) return HR.msg('msg', '還沒有資料。', true);
+    var b = base(), aoa = [['單號', '單據名稱', '申請人', '公司', '社區', '申請日期', '目前簽核人', '狀態', '完成日期', '備註', '等待天數']];
+    recs.forEach(function (r) { aoa.push([r.no, r.type, r.who, r.co, r.site, r.date, r.app, r.status, r.fin, r.note, r.status === '待簽核' ? waited(r, b) : '']); });
+    HR.exportXlsx({ '簽核紀錄': aoa }, '簽核紀錄_' + HR.iso(b) + '.xlsx');
+  };
+  render();
+</script>
+</body>
+</html>

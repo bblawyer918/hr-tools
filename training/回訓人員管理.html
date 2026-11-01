@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回訓人員管理</title>
+<link rel="stylesheet" href="../lib/common.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>回訓人員管理</h1>
+  <p class="sub">讀「員工名冊」＋「訓練紀錄」，依法定回訓週期算出誰快到期、誰已逾期，並產生提醒通知。資料只在這台電腦計算，不會上傳。</p>
+
+  <div class="card noprint">
+    <div class="drop" id="drop">把員工名冊 Excel（含「訓練紀錄」工作表）拖到這裡，或<b>點這裡選檔案</b></div>
+    <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <span class="label">基準日</span><input type="date" id="base">
+      <span class="label">提前提醒</span><input type="number" id="ahead" value="60" min="0"><span class="label">天</span>
+      <span class="label">狀態</span><select id="fStatus"><option value="todo">要處理（逾期＋快到期＋未完成）</option><option value="">全部</option><option value="逾期">逾期</option><option value="快到期">快到期</option><option value="未完成">未完成</option><option value="正常">正常</option></select>
+      <span class="label">訓練</span><select id="fType"></select>
+      <span class="label">公司</span><select id="fComp"></select>
+      <span class="label">社區</span><select id="fSite"></select>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="card"><div class="stats" id="stats"></div></div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">回訓名單</h2>
+        <span class="row noprint"><button class="btn" id="btnAll">全選</button><button class="btn primary" id="btnNotice">產生提醒通知</button><button class="btn" id="btnExport">匯出 Excel</button><button class="btn" onclick="window.print()">列印</button></span>
+      </div>
+      <div class="scroll" style="margin-top:10px"><table id="tbl"></table></div>
+    </div>
+
+    <div class="card hidden" id="noticeCard">
+      <h2>提醒通知（可貼到 LINE 或 Email）</h2>
+      <div class="row noprint" style="margin-bottom:8px">
+        <span class="label">寄件人署名</span><input id="signer" value="人資部" style="width:140px">
+        <button class="btn" id="btnCopy">複製全部</button><span class="label" id="copied"></span>
+      </div>
+      <textarea class="out" id="notice"></textarea>
+    </div>
+
+    <div class="card">
+      <h2>法定回訓規定（本工具使用的週期）</h2>
+      <div class="scroll"><table id="rules"></table></div>
+      <p class="note">「適用對象」看名冊的「職務標籤」欄；職稱有「保全」也算保全。條文會修正，使用前請以全國法規資料庫的現行條文為準。</p>
+    </div>
+  </div>
+</div>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script src="../lib/common.js"></script>
+<script>
+  var $ = HR.$, esc = HR.esc;
+  // 法定訓練：kind = once（一次）／monthly（每月時數）／cycle（每 N 年）／cert（證照效期＋回訓時數）
+  var TYPES = [
+    { id: 'guard-pre', name: '保全職前專業訓練', who: ['保全'], kind: 'once', note: '僱用時一週以上', law: '保全業法第 10-2 條', match: ['保全職前'] },
+    { id: 'guard-month', name: '保全在職訓練', who: ['保全'], kind: 'monthly', hours: 4, note: '每月 4 小時以上', law: '保全業法第 10-2 條', match: ['保全在職'] },
+    { id: 'osh-new', name: '一般安全衛生教育訓練（新僱）', who: ['*'], kind: 'once', note: '新僱或變更工作前；時數依附表十四', law: '職業安全衛生教育訓練規則第 17 條', match: ['一般安全衛生教育訓練', '新僱'] },
+    { id: 'osh-3y', name: '一般勞工安全衛生在職教育訓練', who: ['*'], except: ['職安主管', '急救人員'], kind: 'cycle', years: 3, hours: 3, note: '每 3 年至少 3 小時', law: '職業安全衛生教育訓練規則第 18 條第 1 項第 13 款、第 19 條第 1 項第 5 款', match: ['一般勞工安全衛生在職'], startFrom: 'osh-new' },
+    { id: 'osh-mgr', name: '職業安全衛生業務主管在職訓練', who: ['職安主管'], kind: 'cycle', years: 2, hours: 6, note: '每 2 年至少 6 小時', law: '職業安全衛生教育訓練規則第 19 條第 1 項第 1 款', match: ['業務主管'] },
+    { id: 'firstaid', name: '急救人員在職訓練', who: ['急救人員'], kind: 'cycle', years: 3, hours: 3, note: '每 3 年至少 3 小時', law: '職業安全衛生教育訓練規則第 19 條第 1 項第 5 款', match: ['急救'] },
+    { id: 'fire', name: '防火管理人複訓', who: ['防火管理人'], kind: 'cycle', years: 3, note: '自初訓結束日起每 3 年至少複訓 1 次', law: '防火管理人訓練與專業機構登錄及管理辦法第 3 條', match: ['防火管理人'] },
+    { id: 'apt', name: '公寓大廈管理服務人員認可證換證', who: ['事務管理人員', '防火避難設施管理人員', '設備安全管理人員'], kind: 'cert', years: 5, hours: 16, note: '認可證 5 年；換證前 5 年內回訓 16 小時以上', law: '公寓大廈管理服務人管理辦法第 5 條', match: ['公寓大廈管理服務人員認可證'], hoursMatch: ['回訓'] }
+  ];
+  var ALIAS_P = { id: ['員工編號', '工號'], name: ['姓名'], company: ['公司'], site: ['社區', '部門', '單位'], title: ['職稱'], hire: ['到職日'], leave: ['離職日'], tags: ['職務標籤', '職務'] };
+  var ALIAS_T = { id: ['員工編號', '工號'], name: ['姓名'], item: ['訓練項目', '課程名稱', '訓練名稱'], date: ['完成日', '訓練日期', '取得日'], hours: ['時數'], cert: ['證號'], expire: ['證照到期日', '到期日'] };
+  var people = [], records = [], items = [], selected = {};
+
+  $('rules').innerHTML = '<tr><th class="l">訓練</th><th class="l">適用對象</th><th class="l">週期與時數</th><th class="l">法源</th></tr>' + TYPES.map(function (t) {
+    return '<tr><td class="l">' + t.name + '</td><td class="l">' + (t.who[0] === '*' ? '全體' + (t.except ? '（' + t.except.join('、') + '另依專屬規定）' : '') : t.who.join('、')) + '</td><td class="l">' + t.note + '</td><td class="l">' + t.law + '</td></tr>';
+  }).join('');
+  $('fType').innerHTML = '<option value="">全部</option>' + TYPES.map(function (t) { return '<option value="' + t.id + '">' + t.name + '</option>'; }).join('');
+  $('base').value = HR.iso(HR.today());
+
+  HR.bindDrop('drop', 'file', function (f) {
+    HR.readWorkbook(f, function (err, wb) {
+      if (err) return HR.msg('msg', err.message, true);
+      var tp = HR.findTable(wb, ALIAS_P, ['name', 'hire'], ['員工名冊']);
+      if (!tp) return HR.msg('msg', '找不到員工名冊（要有「姓名」「到職日」欄）。', true);
+      var tt = HR.findTable(wb, ALIAS_T, ['item', 'date'], ['訓練紀錄']);
+      people = tp.rows.map(function (r) {
+        var tags = HR.txt(r.tags).split(/[、,，\/\s]+/).filter(Boolean);
+        if (/保全/.test(HR.txt(r.title)) && tags.indexOf('保全') < 0) tags.push('保全');
+        return { id: HR.txt(r.id), name: HR.txt(r.name), company: HR.txt(r.company), site: HR.txt(r.site), title: HR.txt(r.title), hire: HR.toDate(r.hire), leave: HR.toDate(r.leave), tags: tags };
+      }).filter(function (p) { return p.name && p.hire; });
+      records = tt ? tt.rows.map(function (r) { return { id: HR.txt(r.id), name: HR.txt(r.name), item: HR.txt(r.item), date: HR.toDate(r.date), hours: HR.num(r.hours) || 0, cert: HR.txt(r.cert), expire: HR.toDate(r.expire) }; }).filter(function (r) { return r.date; }) : [];
+      $('drop').innerHTML = '已載入：<b>' + esc(f.name) + '</b>（' + people.length + ' 人、' + records.length + ' 筆訓練紀錄，點這裡換檔）';
+      HR.msg('msg', tt ? '' : '這個檔案沒有「訓練紀錄」工作表，所有人都會顯示未完成。', !tt);
+      var comps = {}, sites = {}; people.forEach(function (p) { comps[p.company] = 1; sites[p.site] = 1; });
+      $('fComp').innerHTML = '<option value="">全部</option>' + Object.keys(comps).sort().map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+      $('fSite').innerHTML = '<option value="">全部</option>' + Object.keys(sites).sort().map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+      selected = {}; compute();
+    });
+  });
+  ['base', 'ahead'].forEach(function (id) { $(id).onchange = compute; });
+  ['fStatus', 'fType', 'fComp', 'fSite'].forEach(function (id) { $(id).onchange = render; });
+
+  function applies(t, p) {
+    if (t.except && t.except.some(function (x) { return p.tags.indexOf(x) >= 0; })) return false;
+    return t.who[0] === '*' || t.who.some(function (x) { return p.tags.indexOf(x) >= 0; });
+  }
+  function recsOf(p, keys) {
+    return records.filter(function (r) { return (p.id && r.id ? r.id === p.id : r.name === p.name) && keys.some(function (k) { return r.item.indexOf(k) >= 0; }); })
+      .sort(function (a, b) { return a.date - b.date; });
+  }
+
+  function compute() {
+    if (!people.length) return;
+    var base = HR.toDate($('base').value) || HR.today(), ahead = +$('ahead').value || 0;
+    items = [];
+    people.filter(function (p) { return !p.leave || p.leave > base; }).forEach(function (p) {
+      TYPES.forEach(function (t) {
+        if (!applies(t, p)) return;
+        var rs = recsOf(p, t.match), last = rs[rs.length - 1], it = { p: p, t: t, last: last ? last.date : null, due: null, status: '正常', detail: '' };
+        if (t.kind === 'once') {
+          if (!last) { it.status = '未完成'; it.due = p.hire; it.detail = '沒有訓練紀錄（' + t.note + '）'; }
+          else it.detail = '已於 ' + HR.ymd(last.date) + ' 完成';
+        } else if (t.kind === 'monthly') {
+          var m0 = new Date(base.getFullYear(), base.getMonth(), 1), mEnd = new Date(base.getFullYear(), base.getMonth() + 1, 0), pm0 = new Date(base.getFullYear(), base.getMonth() - 1, 1);
+          var hNow = rs.filter(function (r) { return r.date >= m0 && r.date <= mEnd; }).reduce(function (a, r) { return a + r.hours; }, 0);
+          var hPrev = rs.filter(function (r) { return r.date >= pm0 && r.date < m0; }).reduce(function (a, r) { return a + r.hours; }, 0);
+          it.due = mEnd;
+          var prevNeeded = p.hire < pm0;
+          if (prevNeeded && hPrev < t.hours) { it.status = '逾期'; it.detail = '上個月只上 ' + hPrev + ' 小時（應 ' + t.hours + '）；本月 ' + hNow + ' 小時'; it.due = new Date(m0 - 864e5); }
+          // 月底前 10 天還沒上滿才提醒，避免月初整批人都跳出來
+          else if (hNow < t.hours) { it.status = HR.daysBetween(base, mEnd) <= 10 ? '快到期' : '正常'; it.detail = '本月已上 ' + hNow + '／' + t.hours + ' 小時'; }
+          else it.detail = '本月已上 ' + hNow + ' 小時';
+        } else if (t.kind === 'cycle') {
+          var from = last ? last.date : null;
+          if (!from && t.startFrom) { var s = recsOf(p, TYPES.filter(function (x) { return x.id === t.startFrom; })[0].match); from = s.length ? s[s.length - 1].date : p.hire; it.detail = '尚無在職訓練紀錄，從' + (s.length ? '新僱訓練' : '到職日') + '起算；'; }
+          if (!from) { it.status = '未完成'; it.due = p.hire; it.detail = '沒有訓練紀錄'; }
+          else { it.due = HR.addMonths(from, t.years * 12); it.detail += '上次 ' + HR.ymd(from) + '，' + t.note; }
+        } else if (t.kind === 'cert') {
+          if (!last) { it.status = '未完成'; it.due = p.hire; it.detail = '沒有認可證紀錄'; }
+          else {
+            it.due = last.expire || HR.addMonths(last.date, t.years * 12);
+            var hrs = recsOf(p, t.hoursMatch).filter(function (r) { return r.date > HR.addMonths(it.due, -t.years * 12) && r.date <= it.due; }).reduce(function (a, r) { return a + r.hours; }, 0);
+            it.hoursDone = hrs;
+            it.detail = '證號 ' + (last.cert || '—') + '；效期內回訓 ' + hrs + '／' + t.hours + ' 小時' + (hrs < t.hours ? '（換證前要補足）' : '');
+          }
+        }
+        if (it.due && it.status === '正常' && t.kind !== 'once' && t.kind !== 'monthly') {
+          var left = HR.daysBetween(base, it.due);
+          if (left < 0) it.status = '逾期'; else if (left <= ahead || (t.kind === 'cert' && it.hoursDone < t.hours && left <= 365)) it.status = '快到期';
+        }
+        it.left = it.due ? HR.daysBetween(base, it.due) : null;
+        it.key = p.id + '|' + p.name + '|' + t.id;
+        items.push(it);
+      });
+    });
+    $('out').classList.remove('hidden');
+    render();
+  }
+
+  var ORDER = { '逾期': 0, '未完成': 1, '快到期': 2, '正常': 3 };
+  function view() {
+    var fs = $('fStatus').value, ft = $('fType').value, fc = $('fComp').value, fsi = $('fSite').value;
+    return items.filter(function (it) {
+      return (!fs || (fs === 'todo' ? it.status !== '正常' : it.status === fs)) && (!ft || it.t.id === ft) && (!fc || it.p.company === fc) && (!fsi || it.p.site === fsi);
+    }).sort(function (a, b) { return ORDER[a.status] - ORDER[b.status] || (a.left === null ? 0 : a.left) - (b.left === null ? 0 : b.left); });
+  }
+  function render() {
+    var count = function (s) { return items.filter(function (i) { return i.status === s; }).length; };
+    var ppl = {}; items.forEach(function (i) { if (i.status !== '正常') ppl[i.key.split('|').slice(0, 2).join('|')] = 1; });
+    $('stats').innerHTML = [['在職人數', people.filter(function (p) { return !p.leave || p.leave > (HR.toDate($('base').value) || HR.today()); }).length + ' 人'], ['逾期', count('逾期') + ' 項', count('逾期') > 0],
+      ['未完成（一次性）', count('未完成') + ' 項', count('未完成') > 0], ['快到期', count('快到期') + ' 項'], ['要通知的人', Object.keys(ppl).length + ' 人']]
+      .map(function (c) { return '<div class="stat' + (c[2] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div></div>'; }).join('');
+    var V = view();
+    var h = '<tr><th class="noprint">選</th><th>狀態</th><th class="l">姓名</th><th class="l">公司／社區</th><th class="l">訓練</th><th>上次</th><th>期限</th><th>剩餘天數</th><th class="l">說明</th></tr>';
+    V.slice(0, 1000).forEach(function (it) {
+      var cls = it.status === '逾期' || it.status === '未完成' ? 'bad' : it.status === '快到期' ? 'mid' : 'good';
+      h += '<tr><td class="noprint"><input type="checkbox" data-k="' + esc(it.key) + '"' + (selected[it.key] ? ' checked' : '') + '></td><td class="' + cls + '">' + it.status + '</td><td class="l">' + esc(it.p.name) +
+        '</td><td class="l">' + esc(it.p.company) + '／' + esc(it.p.site) + '</td><td class="l">' + esc(it.t.name) + '</td><td>' + HR.ymd(it.last) + '</td><td>' + HR.ymd(it.due) + '</td><td>' + (it.left === null ? '' : it.left) + '</td><td class="l">' + esc(it.detail) + '</td></tr>';
+    });
+    $('tbl').innerHTML = V.length ? h : '<tr><td>目前篩選範圍沒有項目。</td></tr>';
+    if (V.length > 1000) $('tbl').innerHTML += '<tr><td colspan="9">只顯示前 1000 筆，請用篩選縮小範圍或匯出 Excel。</td></tr>';
+  }
+  $('tbl').addEventListener('change', function (e) { if (e.target.dataset.k) selected[e.target.dataset.k] = e.target.checked; });
+  $('btnAll').onclick = function () { var V = view(), all = V.every(function (i) { return selected[i.key]; }); V.forEach(function (i) { selected[i.key] = !all; }); render(); };
+
+  $('btnNotice').onclick = function () {
+    var V = items.filter(function (i) { return selected[i.key]; });
+    if (!V.length) V = view().filter(function (i) { return i.status !== '正常'; });
+    if (!V.length) return HR.msg('msg', '沒有要通知的項目。', true);
+    var by = {}, order = [];
+    V.forEach(function (i) { var k = i.p.id + '|' + i.p.name; if (!by[k]) { by[k] = []; order.push(k); } by[k].push(i); });
+    var signer = $('signer').value || '人資部';
+    var out = order.map(function (k) {
+      var list = by[k], p = list[0].p;
+      return p.name + ' 您好：\n\n依照法令規定，您有以下訓練需要完成：\n' + list.map(function (i) {
+        return '・' + i.t.name + '：' + (i.status === '逾期' ? '已逾期（期限 ' + HR.ymd(i.due) + '），請儘快完成' : i.status === '未完成' ? '尚無完成紀錄，請儘快安排' : '請於 ' + HR.ymd(i.due) + ' 前完成') +
+          '（' + i.t.note + '；依據：' + i.t.law + '）';
+      }).join('\n') + '\n\n上課時間與報名方式，請與' + signer + '聯繫。完成後請把結業證明交給' + signer + '登錄，謝謝您。\n\n' + signer + ' 敬上';
+    }).join('\n\n────────\n\n');
+    $('notice').value = out; $('noticeCard').classList.remove('hidden'); $('copied').textContent = '共 ' + order.length + ' 人';
+    $('noticeCard').scrollIntoView({ behavior: 'smooth' });
+  };
+  $('btnCopy').onclick = function () { HR.copyText($('notice').value, function () { $('copied').textContent = '已複製'; }); };
+  $('btnExport').onclick = function () {
+    if (!items.length) return;
+    HR.exportXlsx({ '回訓名單': [['狀態', '員工編號', '姓名', '公司', '社區', '職稱', '訓練', '上次', '期限', '剩餘天數', '說明', '法源']].concat(view().map(function (i) {
+      return [i.status, i.p.id, i.p.name, i.p.company, i.p.site, i.p.title, i.t.name, HR.ymd(i.last), HR.ymd(i.due), i.left, i.detail, i.t.law]; })) }, '回訓名單_' + $('base').value + '.xlsx');
+  };
+</script>
+</body>
+</html>

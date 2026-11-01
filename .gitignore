@@ -1,0 +1,14 @@
+# 真實員工資料只放 _local/，永遠不進 Git
+_local/
+
+# 只允許 samples/ 裡的範本與假資料
+*.xlsx
+*.xls
+*.csv
+!samples/*.xlsx
+!samples/*.csv
+
+# 測試暫存與系統檔
+_test_*.html
+.DS_Store
+~$*

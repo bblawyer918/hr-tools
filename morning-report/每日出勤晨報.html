@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>每日出勤晨報</title>
+<link rel="stylesheet" href="../lib/common.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>每日出勤晨報</h1>
+  <p class="sub">讀「出勤紀錄」Excel（標準格式），整理今天的請假名單、昨天的出勤異常、本月各社區請假統計。可複製成文字貼到 LINE 群組。資料只在這台電腦計算，不會上傳。</p>
+
+  <div class="card noprint">
+    <div class="drop" id="drop">把出勤紀錄 Excel 拖到這裡，或<b>點這裡選檔案</b></div>
+    <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <span class="label">月份工作表</span><select id="sheet"></select>
+      <span class="label">晨報日期</span><select id="day"></select>
+      <span class="label">社區</span><select id="fSite"></select>
+      <button class="btn primary" id="btnCopy">複製晨報文字</button><span class="label" id="copied"></span>
+      <button class="btn" onclick="window.print()">列印</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="card"><h2 id="title"></h2><div class="stats" id="stats"></div></div>
+    <div class="card"><h2 id="leaveTitle">今日請假名單</h2><div class="scroll" id="leave"></div></div>
+    <div class="card"><h2 id="absTitle">出勤異常</h2><div class="scroll" id="abn"></div>
+      <p class="note">晨報是早上看的：<b>遲到</b>看今天；<b>早退、缺卡、曠職、超時未報加班</b>看昨天（昨天的班才下班完）。夜班跨日，以上班那天算。</p></div>
+    <div class="card"><h2 id="monthTitle">本月各社區請假統計</h2><div class="scroll" id="month"></div></div>
+  </div>
+</div>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script src="../lib/common.js"></script>
+<script src="../lib/attendance-core.js"></script>
+<script>
+  var $ = HR.$, esc = HR.esc, fmt = HR.fmt;
+  var wb = null, data = null, shifts = null, report = null;
+
+  HR.bindDrop('drop', 'file', function (f) {
+    HR.readWorkbook(f, function (err, w) {
+      if (err) return HR.msg('msg', err.message, true);
+      wb = w; shifts = ATT.readShifts(wb).shifts;
+      $('sheet').innerHTML = ATT.monthSheets(wb).map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+      $('drop').innerHTML = '已載入：<b>' + esc(f.name) + '</b>（點這裡換檔）';
+      loadSheet();
+    });
+  });
+  $('sheet').onchange = loadSheet;
+  $('day').onchange = render; $('fSite').onchange = render;
+
+  function loadSheet() {
+    try { data = ATT.parse(HR.rows(wb, $('sheet').value)); } catch (e) { $('out').classList.add('hidden'); return HR.msg('msg', e.message, true); }
+    HR.msg('msg', data.mode === 'old' ? '這份是舊格式（只有時數），只能看請假，遲到早退無法判斷。' : '');
+    // 預設：今天在這個月就用今天，否則用最後一天有上班紀錄的日子
+    var last = 1;
+    for (var d = 1; d <= data.nDays; d++) if (data.people.some(function (p) { var x = p.days[d]; return x.in !== null || x.out !== null || x.hours; })) last = d;
+    var t = HR.today(), def = (t.getFullYear() === data.ym.y && t.getMonth() + 1 === data.ym.m) ? t.getDate() : Math.min(last + 1, data.nDays);
+    $('day').innerHTML = '';
+    for (var d2 = 1; d2 <= data.nDays; d2++) {
+      var dt = new Date(data.ym.y, data.ym.m - 1, d2);
+      $('day').innerHTML += '<option value="' + d2 + '"' + (d2 === def ? ' selected' : '') + '>' + data.ym.m + '/' + d2 + '（' + HR.WK[dt.getDay()] + '）' + (HR.holiday(dt) ? ' ' + HR.holiday(dt) : '') + '</option>';
+    }
+    var sites = {}; data.people.forEach(function (p) { for (var d3 = 1; d3 <= data.nDays; d3++) if (p.days[d3].site) sites[p.days[d3].site] = 1; });
+    $('fSite').innerHTML = '<option value="">全部</option>' + Object.keys(sites).sort().map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
+    render();
+  }
+
+  function siteOf(p, d) { return p.days[d].site || '（未排社區）'; }
+  function render() {
+    if (!data) return;
+    var D = +$('day').value, Y = D - 1, fs = $('fSite').value, ym = data.ym;
+    var dateStr = function (d) { var dt = new Date(ym.y, ym.m - 1, d); return ym.m + '/' + d + '（' + HR.WK[dt.getDay()] + '）'; };
+    var leaves = [], abn = [], sched = {}, monthLeave = {};
+    data.people.forEach(function (p) {
+      var sh = shifts[p.shift] || null;
+      for (var d = 1; d <= data.nDays; d++) {
+        var x = p.days[d], site = siteOf(p, d), iss = ATT.judgeDay(data, d, x, sh, {});
+        if (d <= D) x.leave.forEach(function (l) {
+          var m = monthLeave[site] || (monthLeave[site] = { types: {}, times: 0, hours: 0, people: {} });
+          m.types[l.type] = (m.types[l.type] || 0) + (l.h || 0); m.times++; m.hours += l.h || 0; m.people[p.name] = 1;
+        });
+        if (d === D) {
+          if (x.site) sched[site] = sched[site] || { n: 0, arrived: 0, leave: 0 }, sched[site].n++;
+          if (x.site && x.in !== null) sched[site].arrived++;
+          if (x.leave.length) { if (sched[site]) sched[site].leave++; leaves.push({ site: site, p: p, leave: x.leave }); }
+          iss.filter(function (i) { return i[0] === '遲到'; }).forEach(function (i) { abn.push({ site: site, p: p, day: d, type: i[0], text: i[1] }); });
+        }
+        if (d === Y) iss.filter(function (i) { return i[0] !== '遲到' && i[0] !== '無法判讀'; }).forEach(function (i) { abn.push({ site: site, p: p, day: d, type: i[0], text: i[1] }); });
+        if (d === Y) iss.filter(function (i) { return i[0] === '無法判讀'; }).forEach(function (i) { abn.push({ site: site, p: p, day: d, type: i[0], text: i[1] }); });
+      }
+    });
+    var keep = function (o) { return !fs || o.site === fs; };
+    leaves = leaves.filter(keep); abn = abn.filter(keep);
+    var siteKeys = Object.keys(sched).filter(function (s) { return !fs || s === fs; }).sort();
+    var totalN = siteKeys.reduce(function (a, s) { return a + sched[s].n; }, 0), arrived = siteKeys.reduce(function (a, s) { return a + sched[s].arrived; }, 0);
+    var cnt = function (t) { return abn.filter(function (a) { return a.type === t; }).length; };
+    $('title').textContent = (ym.y - 1911) + ' 年 ' + dateStr(D) + ' 出勤晨報' + (fs ? '｜' + fs : '');
+    $('stats').innerHTML = [['今日排班', totalN + ' 人', '已打上班卡 ' + arrived + ' 人'], ['今日請假', leaves.length + ' 人', ''], ['今日遲到', cnt('遲到') + ' 人', '', cnt('遲到') > 0],
+      ['昨日曠職', cnt('曠職') + ' 人', '', cnt('曠職') > 0], ['昨日缺卡', cnt('缺卡') + ' 人', '', cnt('缺卡') > 0], ['昨日早退', cnt('早退') + ' 人', ''], ['昨日超時未報加班', cnt('超時未報加班') + ' 人', '可能漏發加班費']]
+      .map(function (c) { return '<div class="stat' + (c[3] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="k">' + c[2] + '</div></div>'; }).join('');
+
+    $('leaveTitle').textContent = dateStr(D) + ' 請假名單';
+    $('leave').innerHTML = leaves.length ? '<table><tr><th class="l">社區</th><th class="l">姓名</th><th class="l">職稱</th><th class="l">假別與時數</th></tr>' + leaves.sort(function (a, b) { return a.site.localeCompare(b.site); }).map(function (l) {
+      return '<tr><td class="l">' + esc(l.site) + '</td><td class="l">' + esc(l.p.name) + '</td><td class="l">' + esc(l.p.title) + '</td><td class="l">' + l.leave.map(function (x) { return esc(x.type) + (x.h ? ' ' + x.h + ' 小時' : ''); }).join('、') + '</td></tr>';
+    }).join('') + '</table>' : '<p>今天沒有人請假。</p>';
+
+    $('absTitle').textContent = '出勤異常（今日 ' + dateStr(D) + ' 遲到；昨日 ' + (Y >= 1 ? dateStr(Y) : '—') + ' 其他）';
+    var ord = { '曠職': 0, '缺卡': 1, '遲到': 2, '早退': 3, '超時未報加班': 4, '無法判讀': 5 };
+    abn.sort(function (a, b) { return a.site.localeCompare(b.site) || ord[a.type] - ord[b.type]; });
+    $('abn').innerHTML = abn.length ? '<table><tr><th class="l">社區</th><th class="l">姓名</th><th>類型</th><th class="l">說明</th></tr>' + abn.map(function (a) {
+      return '<tr><td class="l">' + esc(a.site) + '</td><td class="l">' + esc(a.p.name) + '</td><td class="' + (a.type === '曠職' || a.type === '缺卡' ? 'bad' : 'mid') + '">' + a.type + '</td><td class="l">' + esc(a.text) + '</td></tr>';
+    }).join('') + '</table>' : '<p>沒有異常。</p>';
+
+    $('monthTitle').textContent = ym.m + ' 月 1 日～' + D + ' 日各社區請假統計';
+    var types = {}; Object.keys(monthLeave).forEach(function (s) { Object.keys(monthLeave[s].types).forEach(function (t) { types[t] = 1; }); });
+    var ts = ATT.LEAVE_NAMES.filter(function (t) { return types[t]; }).concat(Object.keys(types).filter(function (t) { return ATT.LEAVE_NAMES.indexOf(t) < 0; }));
+    var mk = Object.keys(monthLeave).filter(function (s) { return !fs || s === fs; }).sort();
+    $('month').innerHTML = mk.length ? '<table><tr><th class="l">社區</th><th>請假人數</th><th>人次</th>' + ts.map(function (t) { return '<th>' + esc(t) + '（時）</th>'; }).join('') + '<th>合計（時）</th></tr>' + mk.map(function (s) {
+      var m = monthLeave[s]; return '<tr><td class="l">' + esc(s) + '</td><td>' + Object.keys(m.people).length + '</td><td>' + m.times + '</td>' + ts.map(function (t) { return '<td>' + (m.types[t] ? fmt(m.types[t]) : '') + '</td>'; }).join('') + '<td><b>' + fmt(m.hours) + '</b></td></tr>';
+    }).join('') + '</table>' : '<p>本月到目前沒有請假紀錄。</p>';
+    report = { D: D, Y: Y, dateStr: dateStr, leaves: leaves, abn: abn, monthLeave: monthLeave, mk: mk, totalN: totalN, arrived: arrived, fs: fs };
+    $('out').classList.remove('hidden');
+  }
+
+  $('btnCopy').onclick = function () {
+    var r = report; if (!r) return HR.msg('msg', '先載入出勤紀錄。', true);
+    var t = '【出勤晨報】' + (data.ym.y - 1911) + ' 年 ' + r.dateStr(r.D) + (r.fs ? '｜' + r.fs : '') + '\n今日排班 ' + r.totalN + ' 人，請假 ' + r.leaves.length + ' 人\n';
+    t += '\n■ 今日請假\n' + (r.leaves.length ? r.leaves.map(function (l) { return '・' + l.site + '｜' + l.p.name + '：' + l.leave.map(function (x) { return x.type + (x.h ? x.h + 'h' : ''); }).join('、'); }).join('\n') : '無');
+    t += '\n\n■ 出勤異常\n' + (r.abn.length ? r.abn.map(function (a) { return '・' + a.site + '｜' + a.p.name + '：' + a.type + '（' + a.text + '）'; }).join('\n') : '無');
+    t += '\n\n■ 本月請假（1～' + r.D + ' 日）\n' + (r.mk.length ? r.mk.map(function (s) { var m = r.monthLeave[s]; return '・' + s + '：' + Object.keys(m.people).length + ' 人、' + fmt(m.hours) + ' 小時'; }).join('\n') : '無');
+    HR.copyText(t, function () { $('copied').textContent = '已複製'; });
+  };
+</script>
+</body>
+</html>

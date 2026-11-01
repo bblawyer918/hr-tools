@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出勤管理儀表板</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1d2433; --muted: #5d6676; --line: #d7dce3;
+    --accent: #1f5fbf; --head: #eef1f5; --warn: #b42318; --warn-soft: #fdecea; --amber: #8a5a00; --amber-soft: #fff4dc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 17px; margin: 0 0 10px; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); cursor: pointer; }
+  .drop.over { border-color: var(--accent); background: #eef4fd; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .label { color: var(--muted); font-size: 14px; }
+  select, input[type=number] { font-size: 15px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  input[type=number] { width: 72px; }
+  .btn { border: 1px solid var(--accent); background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 15px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 22px; font-weight: 700; }
+  .stat .k { color: var(--muted); font-size: 13px; }
+  .stat.alert .v { color: var(--warn); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; text-align: center; white-space: nowrap; }
+  th { background: var(--head); font-weight: 600; }
+  td.l { text-align: left; white-space: normal; }
+  td.bad { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+  td.mid { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 13px; margin: 1px 2px; }
+  .tag.bad { background: var(--warn-soft); color: var(--warn); }
+  .tag.mid { background: var(--amber-soft); color: var(--amber); }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tabs button { border: 1px solid var(--line); background: #fff; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 15px; }
+  .tabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .note { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .err { background: var(--warn-soft); color: var(--warn); padding: 10px 12px; border-radius: 8px; margin-top: 10px; }
+  .info { background: #eef4fd; color: #1f4a8a; padding: 8px 12px; border-radius: 8px; margin-top: 10px; font-size: 14px; }
+  .hidden { display: none; }
+  .day-hol { background: #fdecea; }
+  .day-we { background: #f3f4f7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>出勤管理儀表板 v2</h1>
+  <p class="sub">讀取出勤紀錄 Excel（新的標準格式，或舊的執勤排班表都可以）。資料只在這台電腦的瀏覽器裡計算，不會上傳。</p>
+
+  <div class="card">
+    <div class="drop" id="drop">把出勤紀錄 Excel 拖到這裡，或<b>點這裡選檔案</b></div>
+    <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <span class="label">月份工作表：</span><select id="sheet"></select>
+      <span class="label">沒設班別時的預設規則：</span>
+      <select id="rule">
+        <option value="84-1">保全（84-1）：每日正常 10、上限 12、每月正常 240</option>
+        <option value="一般">一般勞工：每日正常 8、上限 12</option>
+      </select>
+      <span class="label">連續出勤警示超過</span><input type="number" id="maxRun" value="6" min="1"><span class="label">天</span>
+      <span class="label">超時未報加班門檻</span><input type="number" id="otGap" value="30" min="0"><span class="label">分鐘</span>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 id="monthTitle" style="margin:0"></h2>
+        <button class="btn" id="exportBtn">匯出 Excel（勞檢留存用）</button>
+      </div>
+      <div class="stats" id="stats" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-tab="alerts" class="on">要處理的問題</button>
+        <button data-tab="people">人員明細</button>
+        <button data-tab="leave">請假統計</button>
+        <button data-tab="sites">社區統計</button>
+        <button data-tab="daily">每日人力</button>
+        <button data-tab="shifts">班別設定</button>
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <span class="label">社區：</span><select id="fSite"></select>
+        <span class="label">職稱：</span><select id="fTitle"></select>
+      </div>
+      <div class="scroll" id="tabBody"></div>
+    </div>
+  </div>
+</div>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script>
+  // 國定假日（紀念日及節日實施條例第 4、6 條；實際以人事行政總處公告為準）
+  var HOLIDAYS = {
+    2026: { '1-1': '開國紀念日', '2-15': '小年夜', '2-16': '除夕', '2-17': '春節', '2-18': '春節', '2-19': '春節',
+      '2-28': '和平紀念日', '4-4': '兒童節', '4-5': '民族掃墓節', '5-1': '勞動節', '6-19': '端午節',
+      '9-25': '中秋節', '9-28': '教師節', '10-10': '國慶日', '10-25': '光復紀念日', '12-25': '行憲紀念日' },
+    2027: { '1-1': '開國紀念日', '2-4': '小年夜', '2-5': '除夕', '2-6': '春節', '2-7': '春節', '2-8': '春節',
+      '2-28': '和平紀念日', '4-4': '兒童節', '4-5': '民族掃墓節', '5-1': '勞動節', '6-9': '端午節',
+      '9-15': '中秋節', '9-28': '教師節', '10-10': '國慶日', '10-25': '光復紀念日', '12-25': '行憲紀念日' }
+  };
+  var RULES = { '84-1': { dailyNormal: 10, dailyMax: 12, monthNormal: 240 }, '一般': { dailyNormal: 8, dailyMax: 12, monthNormal: null } };
+  // 檔案沒有「班別設定」工作表時使用
+  var DEFAULT_SHIFTS = {
+    '日班12H': { start: 420, end: 1140, rest: 0, normal: 10, rule: '84-1', grace: 5 },
+    '夜班12H': { start: 1140, end: 420, rest: 0, normal: 10, rule: '84-1', grace: 5 },
+    '機動12H': { start: 420, end: 1140, rest: 0, normal: 10, rule: '84-1', grace: 5 },
+    '辦公室9H': { start: 480, end: 1020, rest: 60, normal: 8, rule: '一般', grace: 5 }
+  };
+  var LEAVE_NAMES = ['特休', '事假', '病假', '婚假', '喪假', '公假', '公傷病假', '產假', '陪產檢及陪產假', '生理假', '家庭照顧假', '產檢假', '安胎休養假', '補休'];
+  var ISSUE_TYPES = ['曠職', '缺卡', '遲到', '早退', '超時未報加班', '單日超時', '月工時超標', '連續出勤', '國定假日出勤', '無法判讀'];
+  var wb = null, data = null, shifts = null, shiftSource = '', tab = 'alerts';
+
+  var $ = function (id) { return document.getElementById(id); };
+  function num(v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = typeof v === 'number' ? v : parseFloat(String(v).trim());
+    return isNaN(n) ? null : n;
+  }
+  function txt(v) { return v === null || v === undefined ? '' : String(v).trim(); }
+  function esc(s) { return txt(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function fmt(n) { return (Math.round(n * 10) / 10).toLocaleString('zh-TW'); }
+  function hhmm(min) { min = ((min % 1440) + 1440) % 1440; return ('0' + Math.floor(min / 60)).slice(-2) + ':' + ('0' + min % 60).slice(-2); }
+
+  // 時間：Excel 時間小數、「07:02」「7:02」「0702」都可以；回傳當天分鐘數
+  function toMin(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') {
+      if (v >= 0 && v < 1) return Math.round(v * 1440);
+      if (v >= 100 && v < 2400 && v % 100 < 60) return Math.floor(v / 100) * 60 + v % 100;
+      return null;
+    }
+    var s = String(v).trim().replace('：', ':');
+    var m = s.match(/^(\d{1,2}):(\d{2})/) || s.match(/^(\d{2})(\d{2})$/);
+    if (!m) return null;
+    var h = +m[1], mi = +m[2];
+    return h < 24 && mi < 60 ? h * 60 + mi : null;
+  }
+  // 請假：「特休8」「病假 4」「事假2、病假6」→ [{type, h}]
+  function parseLeave(v) {
+    var s = txt(v); if (!s) return [];
+    if (num(v) !== null && /^[\d.]+$/.test(s)) return [{ type: '未寫假別', h: num(v) }];
+    return s.split(/[、,，;；\/\s]+(?=\D)/).map(function (part) {
+      var m = part.match(/^([^\d.]+?)\s*([\d.]+)\s*(h|小時|hr)?$/i);
+      if (!m) return { type: part, h: null };
+      var t = m[1].trim(), known = LEAVE_NAMES.filter(function (n) { return n === t || n.indexOf(t) === 0 || t.indexOf(n) === 0; })[0];
+      return { type: known || t, h: +m[2] };
+    });
+  }
+
+  // ── 讀檔 ──
+  var drop = $('drop');
+  drop.onclick = function () { $('file').click(); };
+  drop.ondragover = function (e) { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = function () { drop.classList.remove('over'); };
+  drop.ondrop = function (e) { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); };
+  $('file').onchange = function (e) { if (e.target.files[0]) load(e.target.files[0]); e.target.value = ''; };
+
+  function load(file) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try { wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }); }
+      catch (err) { return showMsg('讀不到這個檔案，請確認是 Excel（.xlsx／.xls）。'); }
+      var skip = { '填寫說明': 1, '班別設定': 1, '假別': 1, '班表': 1, '人力檢核': 1, '問題清單': 1 };
+      var months = wb.SheetNames.filter(function (n) { return !skip[n]; });
+      // 「115年9月」這種月份工作表排前面（排班工具匯出的檔案也能直接讀）
+      months.sort(function (a, b) { return (/\d+年\d+月/.test(b) ? 1 : 0) - (/\d+年\d+月/.test(a) ? 1 : 0); });
+      $('sheet').innerHTML = months.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+      drop.innerHTML = '已載入：<b>' + esc(file.name) + '</b>（點這裡換檔）';
+      readShifts();
+      analyze();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function readShifts() {
+    shifts = JSON.parse(JSON.stringify(DEFAULT_SHIFTS)); shiftSource = '內建預設';
+    if (wb.SheetNames.indexOf('班別設定') < 0) return;
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets['班別設定'], { header: 1, raw: true, defval: null });
+    var got = {};
+    rows.slice(1).forEach(function (r) {
+      var name = txt(r[0]), st = toMin(r[1]), en = toMin(r[2]);
+      if (!name || st === null || en === null) return;
+      got[name] = { start: st, end: en, rest: num(r[3]) || 0, normal: num(r[4]) || 8,
+        rule: RULES[txt(r[5])] ? txt(r[5]) : (/84/.test(txt(r[5])) ? '84-1' : '一般'), grace: num(r[6]) || 0 };
+    });
+    if (Object.keys(got).length) { shifts = got; shiftSource = '檔案內「班別設定」'; }
+  }
+  ['sheet', 'rule'].forEach(function (id) { $(id).onchange = analyze; });
+  ['maxRun', 'otGap'].forEach(function (id) { $(id).oninput = analyze; });
+  $('fSite').onchange = renderTab;
+  $('fTitle').onchange = renderTab;
+  $('exportBtn').onclick = exportXlsx;
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    b.onclick = function () {
+      tab = b.dataset.tab;
+      document.querySelectorAll('#tabs button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      renderTab();
+    };
+  });
+  function showMsg(s, cls) { $('msg').innerHTML = s ? '<div class="' + (cls || 'err') + '">' + s + '</div>' : ''; }
+
+  // ── 解析：每人一組列，第一列標「社區」，之後是 上班／下班／加班／請假（舊格式是 出勤／請假）──
+  function parse(rows) {
+    var hdr = -1, cTitle = -1;
+    for (var r = 0; r < Math.min(rows.length, 30) && hdr < 0; r++) {
+      var row = rows[r] || [];
+      for (var c = 0; c < row.length; c++) if (txt(row[c]) === '職稱') { hdr = r; cTitle = c; break; }
+    }
+    if (hdr < 0) throw new Error('找不到「職稱」標題列，這份可能不是出勤紀錄或執勤排班表。');
+    var head = rows[hdr], cShift = cTitle + 1, cName = cTitle + 2, cLabel = cTitle + 3;
+    var dayCol = {};
+    head.forEach(function (v, c) { var n = num(v); if (c > cLabel && n !== null && n >= 1 && n <= 31 && n === Math.floor(n)) dayCol[n] = c; });
+    var ym = null;
+    for (var r2 = 0; r2 <= hdr; r2++) (rows[r2] || []).forEach(function (v) {
+      var m = txt(v).match(/^(\d{2,3})\s*[\/年]\s*(\d{1,2})/);
+      if (m && !ym) ym = { y: +m[1] + 1911, m: +m[2] };
+    });
+    if (!ym) throw new Error('找不到月份（例如「115/9」）。');
+    var nDays = new Date(ym.y, ym.m, 0).getDate();
+    var people = [], cur = null, mode = 'old';
+    for (var i = hdr + 1; i < rows.length; i++) {
+      var rw = rows[i] || [], label = txt(rw[cLabel]);
+      if (/實際每日上班時數/.test(txt(rw[cTitle]))) break;
+      if (label === '社區' && txt(rw[cName])) {
+        cur = { title: txt(rw[cTitle]), shift: txt(rw[cShift]), name: txt(rw[cName]), days: {} };
+        for (var d = 1; d <= nDays; d++) cur.days[d] = { site: dayCol[d] !== undefined ? txt(rw[dayCol[d]]) : '', in: null, out: null, ot: null, hours: null, code: '', leave: [] };
+        people.push(cur);
+        continue;
+      }
+      if (!cur) continue;
+      for (var d2 = 1; d2 <= nDays; d2++) {
+        if (dayCol[d2] === undefined) continue;
+        var v = rw[dayCol[d2]], x = cur.days[d2];
+        if (label === '上班') { mode = 'new'; x.in = toMin(v); if (x.in === null && txt(v)) x.code = txt(v); }
+        else if (label === '下班') { x.out = toMin(v); if (x.out === null && txt(v)) x.code = txt(v); }
+        else if (label === '加班') x.ot = num(v);
+        else if (label === '請假') x.leave = parseLeave(v);
+        else if (label === '出勤') { var n = num(v); if (n !== null) x.hours = n; else if (txt(v)) x.code = txt(v); }
+      }
+    }
+    if (!people.length) throw new Error('找到標題列，但沒有讀到任何人員。');
+    return { ym: ym, nDays: nDays, people: people, mode: mode };
+  }
+
+  // ── 逐日判斷（遲到／早退／缺卡／曠職，參考 NUEIP 的設計）──
+  function judgeDay(p, d, x, sh, rule, hol) {
+    var issues = [], gap = +$('otGap').value || 0;
+    var leaveH = x.leave.reduce(function (a, l) { return a + (l.h || 0); }, 0);
+    var scheduled = !!x.site;
+    x.worked = 0; x.normal = 0; x.otH = 0; x.isWork = false;
+    if (x.hours !== null || (x.in === null && x.out === null && x.code && data.mode === 'old')) {
+      // 舊格式：只有時數
+      x.worked = x.hours || 0; x.isWork = x.worked > 0 || !!x.code;
+      if (x.code) issues.push(['無法判讀', d + ' 日出勤欄寫「' + x.code + '」']);
+    } else if (x.in !== null || x.out !== null) {
+      x.isWork = true;
+      if (x.in === null || x.out === null) issues.push(['缺卡', d + ' 日缺' + (x.in === null ? '上班' : '下班') + '紀錄']);
+      if (sh && x.in !== null) {
+        var late = x.in - sh.start; if (late < -720) late += 1440;
+        if (late > sh.grace && leaveH === 0) issues.push(['遲到', d + ' 日遲到 ' + late + ' 分（' + hhmm(x.in) + '）']);
+      }
+      if (x.in !== null && x.out !== null) {
+        var span = x.out - x.in; if (span <= 0) span += 1440;
+        if (sh) {
+          // 工時只算班別時間內（早到、晚走不算），晚走的部分要靠「加班」欄報
+          var L = ((sh.end - sh.start) + 1440) % 1440 || 1440;
+          var inRel = ((x.in - sh.start) + 1440) % 1440; if (inRel > 720) inRel -= 1440;
+          var outRel = inRel + span;
+          span = Math.max(0, Math.min(outRel, L) - Math.max(inRel, 0));
+        }
+        x.worked = Math.max(0, span - (sh ? sh.rest : 0)) / 60 + (x.ot || 0);
+        if (sh) {
+          var early = (sh.end - x.out + 1440) % 1440; if (early > 720) early -= 1440;   // 正＝早走，負＝晚走
+          if (early > 0 && leaveH === 0) issues.push(['早退', d + ' 日早退 ' + early + ' 分（' + hhmm(x.out) + '）']);
+          var stayed = -early;
+          if (stayed > gap && !(x.ot > 0)) issues.push(['超時未報加班', d + ' 日晚 ' + stayed + ' 分下班，加班欄空白']);
+        }
+      }
+    } else if (x.code) {
+      x.isWork = true; issues.push(['無法判讀', d + ' 日寫「' + x.code + '」']);
+    } else if (scheduled && leaveH === 0) {
+      issues.push(['曠職', d + ' 日有排班（' + x.site + '）但沒有上下班紀錄，也沒有請假']);
+    }
+    var dn = sh ? sh.normal : rule.dailyNormal;
+    x.otH = data.mode === 'new' ? Math.max(0, x.worked - (x.ot || 0) - dn) + (x.ot || 0) : Math.max(0, x.worked - dn);
+    x.normal = Math.max(0, x.worked - x.otH);
+    if (x.worked > rule.dailyMax) issues.push(['單日超時', d + ' 日工作 ' + fmt(x.worked) + ' 小時']);
+    if (x.isWork && hol) issues.push(['國定假日出勤', d + ' 日' + hol + '（未調移要加倍發工資）']);
+    return issues;
+  }
+
+  function compute(p) {
+    var sh = shifts[p.shift] || null;
+    var ruleKey = sh ? sh.rule : $('rule').value, rule = RULES[ruleKey], maxRun = +$('maxRun').value || 6;
+    var hol = HOLIDAYS[data.ym.y] || {};
+    var s = { workDays: 0, hours: 0, normal: 0, ot: 0, leave: {}, leaveH: 0, issues: [], longest: 0, sites: {}, rule: ruleKey, holWork: 0 };
+    var run = 0;
+    for (var d = 1; d <= data.nDays; d++) {
+      var x = p.days[d];
+      judgeDay(p, d, x, sh, rule, hol[data.ym.m + '-' + d]).forEach(function (i) { s.issues.push(i); if (i[0] === '國定假日出勤') s.holWork++; });
+      x.leave.forEach(function (l) { s.leave[l.type] = (s.leave[l.type] || 0) + (l.h || 0); s.leaveH += l.h || 0; });
+      if (x.isWork) {
+        s.workDays++; s.hours += x.worked; s.normal += x.normal; s.ot += x.otH;
+        run++; s.longest = Math.max(s.longest, run);
+        if (x.site) s.sites[x.site] = (s.sites[x.site] || 0) + 1;
+      } else run = 0;
+    }
+    if (!sh && p.shift && data.mode === 'new') s.issues.unshift(['無法判讀', '班別「' + p.shift + '」不在班別設定，遲到早退無法判斷']);
+    if (rule.monthNormal && s.normal > rule.monthNormal) s.issues.push(['月工時超標', '月正常工時 ' + fmt(s.normal) + ' 小時，超過 ' + rule.monthNormal]);
+    if (s.longest > maxRun) s.issues.push(['連續出勤', '最長連續出勤 ' + s.longest + ' 天']);
+    s.mainSite = Object.keys(s.sites).sort(function (a, b) { return s.sites[b] - s.sites[a]; })[0] || '';
+    s.count = {}; s.issues.forEach(function (i) { s.count[i[0]] = (s.count[i[0]] || 0) + 1; });
+    return s;
+  }
+  function severity(t) { return ['曠職', '缺卡', '單日超時', '月工時超標', '連續出勤', '超時未報加班'].indexOf(t) >= 0 ? 'bad' : 'mid'; }
+
+  function analyze() {
+    showMsg('');
+    if (!wb) return;
+    try {
+      data = parse(XLSX.utils.sheet_to_json(wb.Sheets[$('sheet').value], { header: 1, raw: true, defval: null }));
+    } catch (err) { $('out').classList.add('hidden'); return showMsg(err.message); }
+    data.people.forEach(function (p) { p.s = compute(p); });
+    if (data.mode === 'old') showMsg('這份是舊的執勤排班表（只有時數），遲到、早退、缺卡無法判斷。改用「出勤紀錄標準格式」就能判斷。', 'info');
+    var sites = {}, titles = {};
+    data.people.forEach(function (p) { titles[p.title] = 1; Object.keys(p.s.sites).forEach(function (k) { sites[k] = 1; }); });
+    $('fSite').innerHTML = '<option value="">全部</option>' + Object.keys(sites).sort().map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('');
+    $('fTitle').innerHTML = '<option value="">全部</option>' + Object.keys(titles).sort().map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('');
+    $('out').classList.remove('hidden');
+    renderStats(); renderTab();
+  }
+
+  function totalCount(t) { return data.people.reduce(function (a, p) { return a + (p.s.count[t] || 0); }, 0); }
+  function renderStats() {
+    var P = data.people, sum = function (f) { return P.reduce(function (a, p) { return a + f(p); }, 0); };
+    $('monthTitle').textContent = (data.ym.y - 1911) + ' 年 ' + data.ym.m + ' 月（' + data.ym.y + '）出勤總覽';
+    var cards = [
+      ['人數', P.length + ' 人', ''],
+      ['總出勤時數', fmt(sum(function (p) { return p.s.hours; })) + ' h', '加班 ' + fmt(sum(function (p) { return p.s.ot; })) + ' h'],
+      ['請假時數', fmt(sum(function (p) { return p.s.leaveH; })) + ' h', ''],
+      ['曠職', totalCount('曠職') + ' 次', '', totalCount('曠職') > 0],
+      ['缺卡', totalCount('缺卡') + ' 次', '', totalCount('缺卡') > 0],
+      ['遲到／早退', totalCount('遲到') + '／' + totalCount('早退'), '次'],
+      ['超時未報加班', totalCount('超時未報加班') + ' 次', '可能漏發加班費', totalCount('超時未報加班') > 0],
+      ['國定假日出勤', totalCount('國定假日出勤') + ' 人次', '未調移要加倍']
+    ];
+    $('stats').innerHTML = cards.map(function (c) {
+      return '<div class="stat' + (c[3] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="k">' + c[2] + '</div></div>';
+    }).join('');
+  }
+
+  function filtered() {
+    var fs = $('fSite').value, ft = $('fTitle').value;
+    return data.people.filter(function (p) { return (!fs || p.s.sites[fs] || Object.keys(p.days).some(function (d) { return p.days[d].site === fs; })) && (!ft || p.title === ft); });
+  }
+
+  function renderTab() {
+    if (!data) return;
+    var P = filtered(), h = '';
+    if (tab === 'alerts') {
+      var list = P.filter(function (p) { return p.s.issues.length; }).sort(function (a, b) {
+        var sa = a.s.issues.filter(function (i) { return severity(i[0]) === 'bad'; }).length, sb = b.s.issues.filter(function (i) { return severity(i[0]) === 'bad'; }).length;
+        return sb - sa;
+      });
+      if (!list.length) h = '<p>目前篩選範圍沒有需要處理的問題。</p>';
+      else {
+        h = '<table><tr><th>姓名</th><th>職稱</th><th>班別</th><th>主要社區</th><th>問題</th></tr>';
+        list.forEach(function (p) {
+          h += '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.title) + '</td><td>' + esc(p.shift) + '</td><td>' + esc(p.s.mainSite) + '</td><td class="l">' +
+            p.s.issues.map(function (i) { return '<span class="tag ' + severity(i[0]) + '">【' + i[0] + '】' + esc(i[1]) + '</span>'; }).join('<br>') + '</td></tr>';
+        });
+        h += '</table>';
+      }
+    } else if (tab === 'people') {
+      h = '<table><tr><th>姓名</th><th>職稱</th><th>班別</th><th>規則</th><th>出勤天數</th><th>總時數</th><th>正常工時</th><th>加班</th><th>請假</th><th>曠職</th><th>缺卡</th><th>遲到</th><th>早退</th><th>最長連續</th></tr>';
+      P.forEach(function (p) {
+        var s = p.s, c = s.count, rule = RULES[s.rule], mr = +$('maxRun').value || 6;
+        var cell = function (v, bad) { return '<td' + (bad ? ' class="bad"' : '') + '>' + v + '</td>'; };
+        h += '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.title) + '</td><td>' + esc(p.shift) + '</td><td>' + s.rule + '</td><td>' + s.workDays + '</td><td>' + fmt(s.hours) + '</td>' +
+          cell(fmt(s.normal), rule.monthNormal && s.normal > rule.monthNormal) + '<td>' + fmt(s.ot) + '</td><td>' + fmt(s.leaveH) + '</td>' +
+          cell(c['曠職'] || 0, c['曠職']) + cell(c['缺卡'] || 0, c['缺卡']) + cell(c['遲到'] || 0, false) + cell(c['早退'] || 0, false) + cell(s.longest, s.longest > mr) + '</tr>';
+      });
+      h += '</table>';
+    } else if (tab === 'leave') {
+      var types = {};
+      P.forEach(function (p) { Object.keys(p.s.leave).forEach(function (t) { types[t] = 1; }); });
+      var ts = LEAVE_NAMES.filter(function (t) { return types[t]; }).concat(Object.keys(types).filter(function (t) { return LEAVE_NAMES.indexOf(t) < 0; }));
+      if (!ts.length) h = '<p>這個月沒有請假紀錄。</p>';
+      else {
+        h = '<table><tr><th>姓名</th><th>職稱</th>' + ts.map(function (t) { return '<th>' + esc(t) + '</th>'; }).join('') + '<th>合計（小時）</th></tr>';
+        P.filter(function (p) { return p.s.leaveH > 0; }).forEach(function (p) {
+          h += '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.title) + '</td>' + ts.map(function (t) { return '<td>' + (p.s.leave[t] ? fmt(p.s.leave[t]) : '') + '</td>'; }).join('') + '<td><b>' + fmt(p.s.leaveH) + '</b></td></tr>';
+        });
+        h += '<tr><td colspan="2"><b>合計</b></td>' + ts.map(function (t) { return '<td><b>' + fmt(P.reduce(function (a, p) { return a + (p.s.leave[t] || 0); }, 0)) + '</b></td>'; }).join('') +
+          '<td><b>' + fmt(P.reduce(function (a, p) { return a + p.s.leaveH; }, 0)) + '</b></td></tr></table>';
+        if (types['未寫假別']) h += '<p class="note">「未寫假別」＝請假欄只寫了時數，請補上假別。</p>';
+      }
+    } else if (tab === 'sites') {
+      var agg = {}, hol = HOLIDAYS[data.ym.y] || {};
+      P.forEach(function (p) {
+        for (var d = 1; d <= data.nDays; d++) {
+          var x = p.days[d]; if (!x.site) continue;
+          var a = agg[x.site] || (agg[x.site] = { people: {}, sched: 0, days: 0, hours: 0, absent: 0, hol: 0 });
+          a.sched++;
+          if (x.isWork) { a.days++; a.hours += x.worked; a.people[p.name] = 1; if (hol[data.ym.m + '-' + d]) a.hol++; }
+          else if (!x.leave.length) a.absent++;
+        }
+      });
+      h = '<table><tr><th>社區</th><th>出勤人數</th><th>排班人日</th><th>實際出勤人日</th><th>曠職人日</th><th>總時數</th><th>平均每日人力</th><th>國定假日出勤人次</th></tr>';
+      Object.keys(agg).sort().forEach(function (k) {
+        var a = agg[k];
+        h += '<tr><td class="l">' + esc(k) + '</td><td>' + Object.keys(a.people).length + '</td><td>' + a.sched + '</td><td>' + a.days + '</td><td' + (a.absent ? ' class="bad"' : '') + '>' + a.absent +
+          '</td><td>' + fmt(a.hours) + '</td><td>' + fmt(a.days / data.nDays) + '</td><td' + (a.hol ? ' class="mid"' : '') + '>' + a.hol + '</td></tr>';
+      });
+      h += '</table>';
+    } else if (tab === 'daily') {
+      var siteList = {}, hol2 = HOLIDAYS[data.ym.y] || {}, wk = '日一二三四五六';
+      P.forEach(function (p) { for (var d = 1; d <= data.nDays; d++) if (p.days[d].site) siteList[p.days[d].site] = 1; });
+      var ks = Object.keys(siteList).sort();
+      h = '<table><tr><th>日期</th>' + ks.map(function (k) { return '<th>' + esc(k) + '<br><span class="label">實到／排班</span></th>'; }).join('') + '<th>合計</th></tr>';
+      for (var d = 1; d <= data.nDays; d++) {
+        var dt = new Date(data.ym.y, data.ym.m - 1, d), hn = hol2[data.ym.m + '-' + d], tw = 0, ts2 = 0;
+        h += '<tr class="' + (hn ? 'day-hol' : (dt.getDay() % 6 === 0 ? 'day-we' : '')) + '"><td class="l">' + data.ym.m + '/' + d + '（' + wk[dt.getDay()] + '）' + (hn ? ' ' + hn : '') + '</td>';
+        ks.forEach(function (k) {
+          var sch = 0, wkd = 0;
+          P.forEach(function (p) { var x = p.days[d]; if (x.site === k) { sch++; if (x.isWork) wkd++; } });
+          tw += wkd; ts2 += sch;
+          h += '<td' + (wkd < sch ? ' class="mid"' : '') + '>' + wkd + '／' + sch + '</td>';
+        });
+        h += '<td><b>' + tw + '／' + ts2 + '</b></td></tr>';
+      }
+      h += '</table><p class="note">黃底＝實到人數少於排班人數（請假或曠職）。紅底列＝國定假日，灰底列＝週末。</p>';
+    } else {
+      h = '<p class="note" style="margin-top:0">目前使用：' + shiftSource + '。要修改，請在 Excel 的「班別設定」工作表改。</p>' +
+        '<table><tr><th>班別</th><th>上班</th><th>下班</th><th>休息（分）</th><th>正常工時</th><th>規則</th><th>遲到寬限（分）</th></tr>';
+      Object.keys(shifts).forEach(function (k) {
+        var s = shifts[k];
+        h += '<tr><td>' + esc(k) + '</td><td>' + hhmm(s.start) + '</td><td>' + hhmm(s.end) + '</td><td>' + s.rest + '</td><td>' + s.normal + '</td><td>' + s.rule + '</td><td>' + s.grace + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    $('tabBody').innerHTML = h;
+  }
+
+  function exportXlsx() {
+    if (!data) return;
+    var out = XLSX.utils.book_new(), P = data.people;
+    var issues = [['姓名', '職稱', '班別', '類型', '內容']];
+    P.forEach(function (p) { p.s.issues.forEach(function (i) { issues.push([p.name, p.title, p.shift, i[0], i[1]]); }); });
+    var people = [['姓名', '職稱', '班別', '規則', '出勤天數', '總時數', '正常工時', '加班時數', '請假時數', '曠職', '缺卡', '遲到', '早退', '最長連續出勤']];
+    P.forEach(function (p) { var s = p.s, c = s.count; people.push([p.name, p.title, p.shift, s.rule, s.workDays, +s.hours.toFixed(2), +s.normal.toFixed(2), +s.ot.toFixed(2), s.leaveH, c['曠職'] || 0, c['缺卡'] || 0, c['遲到'] || 0, c['早退'] || 0, s.longest]); });
+    var leave = [['姓名', '假別', '時數']];
+    P.forEach(function (p) { Object.keys(p.s.leave).forEach(function (t) { leave.push([p.name, t, p.s.leave[t]]); }); });
+    var daily = [['日期', '姓名', '社區', '上班', '下班', '工作時數', '加班', '請假']];
+    P.forEach(function (p) {
+      for (var d = 1; d <= data.nDays; d++) {
+        var x = p.days[d]; if (!x.site && !x.isWork && !x.leave.length) continue;
+        daily.push([data.ym.m + '/' + d, p.name, x.site, x.in !== null ? hhmm(x.in) : '', x.out !== null ? hhmm(x.out) : '', +x.worked.toFixed(2), x.otH || '', x.leave.map(function (l) { return l.type + (l.h || ''); }).join('、')]);
+      }
+    });
+    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(issues), '問題清單');
+    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(people), '人員明細');
+    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(leave), '請假明細');
+    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(daily), '逐日出勤');
+    XLSX.writeFile(out, '出勤分析_' + (data.ym.y - 1911) + '年' + data.ym.m + '月.xlsx');
+  }
+</script>
+</body>
+</html>

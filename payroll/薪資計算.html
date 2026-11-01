@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>薪資結算儀表板</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f4f4f2; --surface:#fcfcfb; --surface-2:#f0efec; --line:#e2e1dc;
+  --text:#0b0b0b; --text-2:#52514e; --muted:#7a7974;
+  --series-1:#2a78d6; --accent:#2a78d6;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#121211; --surface:#1a1a19; --surface-2:#242422; --line:#33332f;
+    --text:#f0efec; --text-2:#c3c2b7; --muted:#8f8e86;
+    --series-1:#3987e5; --accent:#3987e5;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#121211; --surface:#1a1a19; --surface-2:#242422; --line:#33332f;
+  --text:#f0efec; --text-2:#c3c2b7; --muted:#8f8e86;
+  --series-1:#3987e5; --accent:#3987e5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;margin:0}
+h2{font-size:16px;margin:0 0 12px}
+.sub{color:var(--text-2);font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-2)}
+input,select,button{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:hover{filter:brightness(.97)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+.kpi .label{font-size:13px;color:var(--text-2)}
+.kpi .val{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi .note{font-size:12px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+.bars{display:flex;flex-direction:column;gap:8px}
+.bar-row{display:grid;grid-template-columns:80px 1fr 110px;gap:8px;align-items:center;font-size:13px}
+.bar-track{height:18px;position:relative}
+.bar{height:18px;background:var(--series-1);border-radius:0 4px 4px 0;min-width:2px}
+.bar-row .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+.bar-row:hover .bar{filter:brightness(1.1)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{color:var(--text-2);font-weight:500;background:var(--surface-2);position:sticky;top:0}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--surface-2)}
+.scroll{overflow-x:auto;max-height:520px}
+.flags{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.flag{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:8px 10px;border-radius:8px;background:var(--surface-2)}
+.flag .ic{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#111}
+.st-critical .ic{background:var(--critical);color:#fff}
+.st-serious .ic{background:var(--serious)}
+.st-warning .ic{background:var(--warning)}
+.st-good .ic{background:var(--good);color:#fff}
+.tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:999px;border:1px solid var(--line);color:var(--text-2);margin-left:4px}
+.empty{color:var(--text-2);text-align:center;padding:40px 10px}
+.hidden{display:none !important}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);max-width:560px;width:calc(100% - 32px);padding:0}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+.slip{padding:20px}
+.slip table td,.slip table th{text-align:right}
+.slip table td:first-child,.slip table th:first-child{text-align:left}
+.slip .total td{font-weight:700;border-top:2px solid var(--text)}
+.slip-actions{display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--line)}
+.legal{font-size:12px;color:var(--muted);line-height:1.7}
+.legal a{color:var(--text-2)}
+@media print{
+  body{background:#fff}
+  body > .wrap{display:none}
+  dialog{position:static;border:none;max-width:none;width:100%}
+  .slip-actions{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>薪資結算儀表板</h1>
+      <div class="sub">物業／保全公司內部試算用｜資料只在這台電腦的瀏覽器裡計算，不會上傳</div>
+    </div>
+    <div class="toolbar">
+      <button id="btnTheme" title="切換深淺色">◐ 深淺色</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>① 匯入資料與設定</h2>
+    <div class="toolbar">
+      <label class="field">結算月份<input type="month" id="month"></label>
+      <label class="field">職災保險費率 %（保全、公寓大廈、清潔＝0.25；以繳款單為準）<input type="number" id="ocRate" step="0.01" min="0" value="0.25" style="width:150px"></label>
+      <label class="field">職工福利金扣繳率 %<input type="number" id="welfareRate" step="0.1" min="0" value="0.5" style="width:90px"></label>
+      <label class="field">福利金計算基礎
+        <select id="welfareBase">
+          <option value="gross">應發合計</option>
+          <option value="base">本薪</option>
+        </select>
+      </label>
+      <label class="field">雇主勞退提繳率 %<input type="number" id="penRate" step="0.5" min="6" value="6" style="width:90px"></label>
+    </div>
+    <div class="toolbar" style="margin-top:12px">
+      <label class="field">選擇 Excel／CSV 檔<input type="file" id="file" accept=".csv,.xlsx,.xls"></label>
+      <button id="btnSample">載入範例（假資料）</button>
+      <button id="btnTemplate">下載空白範本 CSV</button>
+      <button id="btnExport" class="primary" disabled>匯出結算結果 CSV</button>
+    </div>
+    <div id="importMsg" class="sub" style="margin-top:8px"></div>
+  </section>
+
+  <div id="emptyState" class="card empty">還沒有資料。先按「載入範例」看看長什麼樣，或匯入你的薪資表。</div>
+
+  <div id="dash" class="hidden">
+    <section class="kpis" id="kpis"></section>
+    <div style="height:16px"></div>
+    <div class="grid2">
+      <section class="card">
+        <h2>各部門人事成本（應發＋雇主負擔）</h2>
+        <div class="bars" id="deptBars"></div>
+      </section>
+      <section class="card">
+        <h2>結薪前要處理的提醒</h2>
+        <ul class="flags" id="flags"></ul>
+      </section>
+    </div>
+    <section class="card">
+      <h2>② 員工薪資明細 <span class="sub">（點一列看薪資條）</span></h2>
+      <div class="scroll"><table id="empTable"></table></div>
+    </section>
+  </div>
+
+  <section class="card legal">
+    <strong>計算依據（115 年 1 月 1 日起適用）</strong><br>
+    勞保：月投保薪資 29,500～45,800 元 11 級；普通事故 11.5%＋就業保險 1%，勞工 20%、雇主 70%，金額直接採用勞保局〈普通事故及就業保險合計之保險費分擔金額表〉（全月）。
+    健保：直接採用健保署〈全民健康保險保險費負擔金額表(三)〉（費率 5.17%、平均眷口數 0.56），眷屬最多計 3 口。
+    勞退：雇主提繳 ≥6%，上限 150,000 元。職災：上限 72,800 元，全額雇主負擔；行業別「租賃業、人力仲介及供應業、保全及偵探業、建築物及綠化服務業、行政支援服務業」0.18%＋上下班 0.07%＝0.25%（114 年 1 月 1 日起施行）；50 人以上單位可能適用實績費率，以繳款單為準。積欠工資墊償基金：雇主依勞保投保薪資萬分之 2.5 提繳。
+    扣款：職工福利金依職工福利金條例第 2 條第 1 項第 3 款，每月於薪津內扣 0.5%。制服、團險代扣須有勞工同意（勞基法第 22 條第 2 項）；不得預扣工資作為違約金或賠償（第 26 條）。所得稅不在本工具計算範圍。
+    <br>⚠ 本工具僅為試算，不處理到離職未滿月、部分工時級距、二代健保補充保費；結果請與勞保局、健保署申報資料核對。
+    <br>來源：<a href="https://www.nhi.gov.tw/ch/cp-19418-9eefb-2576-1.html" target="_blank" rel="noopener">健保署負擔金額表</a>｜<a href="https://www.bli.gov.tw/0011588.html" target="_blank" rel="noopener">勞保局保險費分擔金額表</a>｜<a href="https://www.bli.gov.tw/0005475.html" target="_blank" rel="noopener">勞保局投保薪資分級表</a>｜<a href="https://www.bli.gov.tw/0103189.html" target="_blank" rel="noopener">勞保局災保費率表</a>
+  </section>
+</div>
+
+<dialog id="slipDlg">
+  <div class="slip" id="slipBody"></div>
+  <div class="slip-actions">
+    <button onclick="window.print()">列印／存成 PDF</button>
+    <button class="primary" onclick="document.getElementById('slipDlg').close()">關閉</button>
+  </div>
+</dialog>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script id="calc">
+/* ===== 115 年費率與級距（可整段替換更新） ===== */
+var RATES = {
+  year: 115,
+  minWage: 29500,
+  laborGrades: [29500,30300,31800,33300,34800,36300,38200,40100,42000,43900,45800],
+  laborOrdinary: 0.115, laborEmploy: 0.01, laborEmpShare: 0.2, laborErShare: 0.7,
+  // 勞保局〈勞工保險普通事故及就業保險合計之保險費分擔金額表〉115.1.1 起適用，全月 30 日：[月投保薪資, 勞工負擔, 單位負擔]
+  labor: [[29500,738,2582],[30300,758,2651],[31800,795,2783],[33300,833,2914],[34800,870,3045],[36300,908,3176],[38200,955,3342],[40100,1002,3509],[42000,1050,3675],[43900,1098,3841],[45800,1145,4008]],
+  // 健保署負擔金額表(三) 115.1.1 生效：[月投保金額, 本人負擔, 投保單位負擔]
+  nhi: [[29500,458,1428],[30300,470,1466],[31800,493,1539],[33300,516,1611],[34800,540,1684],[36300,563,1757],[38200,592,1849],[40100,622,1940],[42000,651,2032],[43900,681,2124],[45800,710,2216],[48200,748,2332],[50600,785,2449],[53000,822,2565],[55400,859,2681],[57800,896,2797],[60800,943,2942],[63800,990,3087],[66800,1036,3233],[69800,1083,3378],[72800,1129,3523],[76500,1187,3702],[80200,1244,3881],[83900,1301,4060],[87600,1359,4239],[92100,1428,4457],[96600,1498,4675],[101100,1568,4892],[105600,1638,5110],[110100,1708,5328],[115500,1791,5589],[120900,1875,5850],[126300,1959,6112],[131700,2043,6373],[137100,2126,6634],[142500,2210,6896],[147900,2294,7157],[150000,2327,7259],[156400,2426,7568],[162800,2525,7878],[169200,2624,8188],[175600,2724,8497],[182000,2823,8807],[189500,2939,9170],[197000,3055,9533],[204500,3172,9896],[212000,3288,10259],[219500,3404,10622],[228200,3539,11043],[236900,3674,11464],[245600,3809,11885],[254300,3944,12306],[263000,4079,12727],[273000,4234,13211],[283000,4389,13695],[293000,4544,14179],[303000,4700,14663],[313000,4855,15146]],
+  pensionMax: 150000,
+  occMax: 72800,
+  wageFundRate: 0.00025   // 積欠工資墊償基金，雇主依勞保投保薪資萬分之 2.5 提繳
+};
+
+function gradeOf(list, amount){ // 取「大於等於薪資」的最低一級，超過則取最高級
+  for (var i=0;i<list.length;i++){ if (amount <= list[i]) return list[i]; }
+  return list[list.length-1];
+}
+function nhiRowOf(amount){
+  for (var i=0;i<RATES.nhi.length;i++){ if (amount <= RATES.nhi[i][0]) return RATES.nhi[i]; }
+  return RATES.nhi[RATES.nhi.length-1];
+}
+var nhiAmounts = RATES.nhi.map(function(r){return r[0];});
+function num(v){ if (v===undefined||v===null) return 0; var s=String(v).replace(/[,\s元]/g,''); if(s==='') return 0; var n=Number(s); return isFinite(n)?n:0; }
+function has(v){ return v!==undefined && v!==null && String(v).trim()!==''; }
+function r(n){ return Math.round(n); }
+
+function calcEmployee(row, opt){
+  var e = {
+    id: String(row['員工編號']||'').trim(), name: String(row['姓名']||'').trim(), dept: String(row['部門']||'未分部門').trim()||'未分部門',
+    base: num(row['本薪']), meal: num(row['伙食津貼']), duty: num(row['職務加給']), attend: num(row['全勤獎金']),
+    ot: num(row['加班費']), otherAdd: num(row['其他加項']), leaveDeduct: num(row['請假扣款']), otherDeduct: num(row['其他扣項']),
+    uniform: num(row['制服代扣']), uniformConsent: /^(有|是|y|yes|v|✓|1)$/i.test(String(row['制服同意書']||'').trim()), groupIns: num(row['團險']),
+    deps: Math.max(0, Math.floor(num(row['健保眷屬數']))), selfRate: num(row['勞退自提率']),
+    flags: []
+  };
+  var depsCounted = Math.min(e.deps, 3);
+  if (e.deps > 3) e.flags.push(['warning','健保眷屬 '+e.deps+' 口，依規定最多計 3 口']);
+
+  // 經常性給與（最低工資比較、建議投保基準）
+  e.regular = e.base + e.meal + e.duty + e.attend;
+  e.gross = e.regular + e.ot + e.otherAdd - e.leaveDeduct;
+
+  if (e.regular < RATES.minWage) e.flags.push(['critical','本薪＋固定津貼 '+fmt(e.regular)+' 元，低於最低工資 '+fmt(RATES.minWage)+' 元（若為部分工時或未滿月請另行確認）']);
+
+  // 投保級距：有填用填的，沒填依經常性給與對照
+  var suggestLabor = gradeOf(RATES.laborGrades, e.regular);
+  var suggestNhi = gradeOf(nhiAmounts, e.regular);
+  var suggestPen = Math.min(gradeOf(nhiAmounts, e.regular), RATES.pensionMax);
+  var suggestOcc = Math.min(gradeOf(nhiAmounts, e.regular), RATES.occMax);
+  e.laborIns = has(row['勞保投保薪資']) ? gradeOf(RATES.laborGrades, num(row['勞保投保薪資'])) : suggestLabor;
+  e.nhiIns   = has(row['健保投保金額']) ? gradeOf(nhiAmounts, num(row['健保投保金額'])) : suggestNhi;
+  e.penIns   = has(row['勞退提繳工資']) ? Math.min(gradeOf(nhiAmounts, num(row['勞退提繳工資'])), RATES.pensionMax) : suggestPen;
+  e.occIns   = suggestOcc;
+  if (e.laborIns < suggestLabor) e.flags.push(['serious','勞保投保薪資 '+fmt(e.laborIns)+' 低於應投保級距 '+fmt(suggestLabor)+'，疑似高薪低報（勞保條例§72Ⅲ 可處短報保費 4 倍罰鍰）']);
+  if (e.nhiIns < suggestNhi) e.flags.push(['serious','健保投保金額 '+fmt(e.nhiIns)+' 低於應投保級距 '+fmt(suggestNhi)+'，疑似高薪低報']);
+  if (e.penIns < suggestPen) e.flags.push(['serious','勞退提繳工資 '+fmt(e.penIns)+' 低於應提繳級距 '+fmt(suggestPen)]);
+
+  // 勞保＋就保（查勞保局分擔金額表）
+  var lr = RATES.labor.filter(function(x){ return x[0]===e.laborIns; })[0];
+  e.laborEmp = lr[1];
+  e.laborEr  = lr[2];
+  e.wageFund = r(e.laborIns * RATES.wageFundRate);
+  // 健保（查表）
+  var nr = nhiRowOf(e.nhiIns);
+  e.nhiEmp = nr[1] * (1 + depsCounted);
+  e.nhiEr = nr[2];
+  // 勞退
+  if (e.selfRate < 0 || e.selfRate > 6){ e.flags.push(['warning','勞退自提率 '+e.selfRate+'% 不在 0～6% 範圍，已改以 0% 計']); e.selfRate = 0; }
+  e.penSelf = r(e.penIns * e.selfRate/100);
+  e.penEr = r(e.penIns * opt.penRate/100);
+  // 職災（雇主全額）
+  e.occEr = opt.ocRate > 0 ? r(e.occIns * opt.ocRate/100) : 0;
+
+  // 職工福利金（職工福利金條例§2Ⅰ③：每月於薪津內扣 0.5%）；有填「福利金」欄就用填的
+  e.welfareBaseAmt = opt.welfareBase === 'base' ? e.base : e.gross;
+  e.welfare = has(row['福利金']) ? num(row['福利金']) : r(e.welfareBaseAmt * opt.welfareRate/100);
+  // 制服、團險：工資應全額直接給付，代扣要有勞工同意（勞基法§22Ⅱ）
+  if (e.uniform > 0 && !e.uniformConsent) e.flags.push(['serious','制服代扣 '+fmt(e.uniform)+' 元，但「制服同意書」欄不是「有」。沒有書面同意不能從薪資扣（勞基法§22Ⅱ）；離職時扣制服賠償，可能違反§26']);
+  if (e.groupIns > 0) e.groupNote = '團險自付';
+
+  e.empDeduct = e.laborEmp + e.nhiEmp + e.penSelf + e.uniform + e.groupIns + e.welfare + e.otherDeduct;
+  e.net = e.gross - e.empDeduct;
+  e.erCost = e.laborEr + e.nhiEr + e.penEr + e.occEr + e.wageFund;
+  e.totalCost = e.gross + e.erCost;
+  if (e.net < 0) e.flags.push(['critical','實發金額為負數，請檢查扣款']);
+  if (!e.name) e.flags.push(['warning','缺少姓名']);
+  return e;
+}
+function fmt(n){ return Math.round(n).toLocaleString('zh-TW'); }
+if (typeof module !== 'undefined') module.exports = { RATES:RATES, calcEmployee:calcEmployee };
+</script>
+
+<script>
+var HEADERS = ['員工編號','姓名','部門','本薪','伙食津貼','職務加給','全勤獎金','加班費','其他加項','請假扣款','制服代扣','制服同意書','團險','福利金','其他扣項','健保眷屬數','勞退自提率','勞保投保薪資','健保投保金額','勞退提繳工資'];
+var SAMPLE = [
+  ['A001','範例員工甲','管理處',52000,3000,5000,0,0,0,0,0,'',300,'',0,1,6,'','',''],
+  ['A002','範例員工乙','管理處',38000,3000,2000,1000,1800,0,0,0,'',300,'',0,0,0,'','',''],
+  ['S001','範例員工丙','保全部',30000,2400,0,1500,6200,0,0,500,'有',300,'',0,2,0,'','',''],
+  ['S002','範例員工丁','保全部',31000,2400,0,1500,5400,0,1000,500,'',300,'',0,0,0,29500,29500,''],
+  ['S003','範例員工戊','保全部',26000,2400,0,0,3000,0,0,0,'',0,'',0,0,0,'','',''],
+  ['C001','範例員工己','清潔部',29500,0,0,0,0,800,0,0,'',0,'',0,4,0,'','',''],
+  ['M001','範例員工庚','管理處',95000,3000,10000,0,0,0,0,0,'',300,'',0,0,6,'','','']
+];
+var rows = [], results = [];
+
+function $(id){ return document.getElementById(id); }
+function opts(){ var w = Number($('welfareRate').value); return { ocRate:Number($('ocRate').value)||0, penRate:Math.max(6, Number($('penRate').value)||6), welfareRate: isFinite(w)&&w>=0 ? w : 0.5, welfareBase:$('welfareBase').value }; }
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+function parseCSV(text){
+  text = text.replace(/^﻿/,'');
+  var out=[], row=[], cur='', q=false;
+  for (var i=0;i<text.length;i++){
+    var c=text[i];
+    if (q){ if (c==='"'){ if (text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else if (c==='"') q=true;
+    else if (c===','){ row.push(cur); cur=''; }
+    else if (c==='\n'||c==='\r'){ if (c==='\r'&&text[i+1]==='\n') i++; row.push(cur); out.push(row); row=[]; cur=''; }
+    else cur+=c;
+  }
+  if (cur!==''||row.length){ row.push(cur); out.push(row); }
+  return out.filter(function(r){ return r.some(function(c){return String(c).trim()!=='';}); });
+}
+function toObjects(table){
+  var head = table[0].map(function(h){return String(h).trim();});
+  var missing = ['姓名','本薪'].filter(function(h){return head.indexOf(h)<0;});
+  if (missing.length) throw new Error('缺少必要欄位：'+missing.join('、')+'。請用「下載空白範本」的欄位名稱。');
+  var unknown = head.filter(function(h){return h && HEADERS.indexOf(h)<0;});
+  var objs = table.slice(1).map(function(r){ var o={}; head.forEach(function(h,i){ o[h]=r[i]; }); return o; });
+  return { objs:objs, unknown:unknown };
+}
+function loadTable(table, label){
+  try {
+    var res = toObjects(table);
+    rows = res.objs;
+    $('importMsg').textContent = '已載入 '+label+'：'+rows.length+' 位員工'+(res.unknown.length?'。以下欄位不認得、已略過：'+res.unknown.join('、'):'');
+    render();
+  } catch(err){ $('importMsg').textContent = '⚠ '+err.message; }
+}
+
+function loadXLSX(file){
+  function go(){
+    var fr = new FileReader();
+    fr.onload = function(){
+      var wb = XLSX.read(new Uint8Array(fr.result), {type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      loadTable(XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''}), file.name+'（第一個工作表）');
+    };
+    fr.readAsArrayBuffer(file);
+  }
+  if (window.XLSX) return go();
+  $('importMsg').textContent = '載入 Excel 讀取元件中…（需要網路；檔案本身不會上傳）';
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload = go;
+  s.onerror = function(){ $('importMsg').textContent = '⚠ 無法載入 Excel 讀取元件（可能沒網路）。請在 Excel 另存成 CSV（UTF-8）再匯入。'; };
+  document.head.appendChild(s);
+}
+
+$('file').addEventListener('change', function(ev){
+  var f = ev.target.files[0]; if (!f) return;
+  if (/\.xlsx?$/i.test(f.name)) return loadXLSX(f);
+  var fr = new FileReader();
+  fr.onload = function(){ loadTable(parseCSV(fr.result), f.name); };
+  fr.readAsText(f, 'utf-8');
+});
+$('btnSample').onclick = function(){ loadTable([HEADERS].concat(SAMPLE), '範例假資料'); };
+['ocRate','penRate','welfareRate','welfareBase','month'].forEach(function(id){ $(id).addEventListener('input', function(){ if (rows.length) render(); }); });
+
+function download(name, text){
+  var blob = new Blob(['﻿'+text], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+}
+function csvLine(arr){ return arr.map(function(v){ v=String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','); }
+$('btnTemplate').onclick = function(){ download('薪資匯入範本.csv', csvLine(HEADERS)+'\n'); };
+$('btnExport').onclick = function(){
+  var head = ['員工編號','姓名','部門','應發合計','勞保自付','健保自付','勞退自提','制服代扣','團險','福利金','其他扣項','扣款合計','實發金額','勞保雇主','健保雇主','勞退雇主','職災雇主','墊償基金','雇主負擔合計','人事成本','勞保級距','健保級距','勞退級距','提醒'];
+  var lines = [csvLine(head)].concat(results.map(function(e){
+    return csvLine([e.id,e.name,e.dept,e.gross,e.laborEmp,e.nhiEmp,e.penSelf,e.uniform,e.groupIns,e.welfare,e.otherDeduct,e.empDeduct,e.net,e.laborEr,e.nhiEr,e.penEr,e.occEr,e.wageFund,e.erCost,e.totalCost,e.laborIns,e.nhiIns,e.penIns,e.flags.map(function(f){return f[1];}).join('；')]);
+  }));
+  download('薪資結算_'+($('month').value||'未指定月份')+'.csv', lines.join('\n'));
+};
+
+var ICON = {critical:'!', serious:'!', warning:'?', good:'✓'};
+var LABEL = {critical:'嚴重', serious:'需處理', warning:'請確認', good:'正常'};
+
+function render(){
+  var o = opts();
+  results = rows.map(function(r){ return calcEmployee(r, o); });
+  $('emptyState').classList.toggle('hidden', results.length>0);
+  $('dash').classList.toggle('hidden', results.length===0);
+  $('btnExport').disabled = results.length===0;
+  if (!results.length) return;
+
+  var sum = function(k){ return results.reduce(function(a,e){return a+e[k];},0); };
+  var flagCount = results.reduce(function(a,e){return a+e.flags.length;},0);
+  var kpis = [
+    ['結薪人數', results.length+' 人', ($('month').value||'未指定月份')],
+    ['應發總額', fmt(sum('gross')), '元'],
+    ['員工扣款', fmt(sum('empDeduct')), '勞健保自付、自提、制服、團險、福利金'],
+    ['實發總額', fmt(sum('net')), '元'],
+    ['雇主負擔', fmt(sum('erCost')), o.ocRate>0?'勞保＋健保＋勞退＋職災＋墊償':'未含職災（費率未填）'],
+    ['人事總成本', fmt(sum('totalCost')), '應發＋雇主負擔'],
+    ['待處理提醒', flagCount+' 項', flagCount?'見右側清單':'沒有異常']
+  ];
+  $('kpis').innerHTML = kpis.map(function(k){ return '<div class="kpi"><div class="label">'+k[0]+'</div><div class="val">'+k[1]+'</div><div class="note">'+esc(k[2])+'</div></div>'; }).join('');
+
+  // 部門長條（單一數列，依成本排序）
+  var dept = {};
+  results.forEach(function(e){ dept[e.dept] = dept[e.dept] || {cost:0,n:0}; dept[e.dept].cost += e.totalCost; dept[e.dept].n++; });
+  var list = Object.keys(dept).map(function(k){return [k,dept[k]];}).sort(function(a,b){return b[1].cost-a[1].cost;});
+  var max = list.length ? list[0][1].cost : 1;
+  $('deptBars').innerHTML = list.map(function(d){
+    var pct = max>0 ? d[1].cost/max*100 : 0;
+    return '<div class="bar-row" title="'+esc(d[0])+'：'+fmt(d[1].cost)+' 元，'+d[1].n+' 人"><div>'+esc(d[0])+'</div><div class="bar-track"><div class="bar" style="width:'+pct.toFixed(1)+'%"></div></div><div class="num">'+fmt(d[1].cost)+'</div></div>';
+  }).join('');
+
+  // 提醒
+  var items = [];
+  if (!(o.ocRate>0)) items.push(['warning','職災保險費率是 0，雇主負擔沒有算到職災保費（保全、公寓大廈、清潔是 0.25%，以繳款單為準）', '全體']);
+  var order = {critical:0,serious:1,warning:2};
+  results.forEach(function(e){ e.flags.forEach(function(f){ items.push([f[0], f[1], e.name||e.id]); }); });
+  items.sort(function(a,b){ return order[a[0]]-order[b[0]]; });
+  if (!items.length) items.push(['good','沒有偵測到異常','全體']);
+  $('flags').innerHTML = items.map(function(it){
+    return '<li class="flag st-'+it[0]+'"><span class="ic" aria-hidden="true">'+ICON[it[0]]+'</span><div><strong>'+LABEL[it[0]]+'｜'+esc(it[2])+'</strong><br>'+esc(it[1])+'</div></li>';
+  }).join('');
+
+  // 員工表
+  var cols = [['id','編號'],['name','姓名'],['dept','部門'],['gross','應發'],['laborEmp','勞保'],['nhiEmp','健保'],['penSelf','自提'],['uniform','制服'],['groupIns','團險'],['welfare','福利金'],['empDeduct','扣款合計'],['net','實發'],['erCost','雇主負擔'],['totalCost','人事成本']];
+  var html = '<thead><tr>'+cols.map(function(c){return '<th>'+c[1]+'</th>';}).join('')+'<th>提醒</th></tr></thead><tbody>';
+  results.forEach(function(e,i){
+    html += '<tr data-i="'+i+'">'+cols.map(function(c){ var v=e[c[0]]; return '<td>'+(typeof v==='number'?fmt(v):esc(v))+'</td>'; }).join('')+
+      '<td>'+(e.flags.length?e.flags.map(function(f){return '<span class="tag">'+ICON[f[0]]+' '+LABEL[f[0]]+'</span>';}).join(''):'')+'</td></tr>';
+  });
+  html += '</tbody><tfoot><tr><td></td><td><strong>合計</strong></td><td></td>'+cols.slice(3).map(function(c){return '<td><strong>'+fmt(sum(c[0]))+'</strong></td>';}).join('')+'<td></td></tr></tfoot>';
+  $('empTable').innerHTML = html;
+}
+
+$('empTable').addEventListener('click', function(ev){
+  var tr = ev.target.closest('tbody tr'); if (!tr) return;
+  var e = results[Number(tr.dataset.i)];
+  var line = function(a,b){ return b ? '<tr><td>'+a+'</td><td>'+fmt(b)+'</td></tr>' : ''; };
+  $('slipBody').innerHTML =
+    '<h2 style="margin-bottom:4px">薪資明細｜'+esc($('month').value||'')+'</h2>'+
+    '<div class="sub">'+esc(e.id)+'　'+esc(e.name)+'　'+esc(e.dept)+'</div>'+
+    '<table style="margin-top:12px"><thead><tr><th>應發項目</th><th>金額</th></tr></thead><tbody>'+
+      line('本薪',e.base)+line('伙食津貼',e.meal)+line('職務加給',e.duty)+line('全勤獎金',e.attend)+line('加班費',e.ot)+line('其他加項',e.otherAdd)+(e.leaveDeduct?'<tr><td>請假扣款</td><td>-'+fmt(e.leaveDeduct)+'</td></tr>':'')+
+      '<tr class="total"><td>應發合計</td><td>'+fmt(e.gross)+'</td></tr></tbody></table>'+
+    '<table style="margin-top:12px"><thead><tr><th>應扣項目</th><th>金額</th></tr></thead><tbody>'+
+      '<tr><td>勞保費（級距 '+fmt(e.laborIns)+'）</td><td>'+fmt(e.laborEmp)+'</td></tr>'+
+      '<tr><td>健保費（級距 '+fmt(e.nhiIns)+'，眷屬 '+Math.min(e.deps,3)+' 口）</td><td>'+fmt(e.nhiEmp)+'</td></tr>'+
+      line('勞退自提 '+e.selfRate+'%',e.penSelf)+
+      line('制服代扣'+(e.uniformConsent?'（已簽同意書）':''),e.uniform)+
+      line('團體保險（自付）',e.groupIns)+
+      line('職工福利金',e.welfare)+
+      line('其他扣項',e.otherDeduct)+
+      '<tr class="total"><td>應扣合計</td><td>'+fmt(e.empDeduct)+'</td></tr></tbody></table>'+
+    '<table style="margin-top:12px"><tbody><tr class="total"><td>實發金額</td><td>'+fmt(e.net)+'</td></tr></tbody></table>'+
+    '<p class="legal" style="margin-top:12px">雇主另負擔：勞保 '+fmt(e.laborEr)+'、健保 '+fmt(e.nhiEr)+'、勞退 '+fmt(e.penEr)+'、職災 '+fmt(e.occEr)+'、墊償基金 '+fmt(e.wageFund)+'（不從薪資扣除）</p>';
+  $('slipDlg').showModal();
+});
+
+(function(){
+  var d = new Date(); $('month').value = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  var saved = null; try { saved = localStorage.getItem('payroll-theme'); } catch(e){}
+  if (saved) document.documentElement.dataset.theme = saved;
+  $('btnTheme').onclick = function(){
+    var dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('payroll-theme', next); } catch(e){}
+  };
+})();
+</script>
+</body>
+</html>

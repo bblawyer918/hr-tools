@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>排班週報</title>
+<link rel="stylesheet" href="../lib/common.css">
+<style>
+  #grid td.c { min-width: 74px; font-size: 13px; }
+  .k-work { background: #e6eefb; color: #1f4a8a; }
+  .k-off { background: #f1f2f4; color: #6b7280; }
+  .k-nat { background: var(--ok-soft); color: var(--ok); }
+  .k-leave { background: var(--amber-soft); color: var(--amber); }
+  td.away { box-shadow: inset 0 0 0 2px #c07a00; }
+  th.hol { background: #fbd5d1; color: var(--warn); }
+  #sites .btn { margin: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>排班週報</h1>
+  <p class="sub">讀「排班設計工具」匯出的 Excel，整理某一週各社區的班表與每個人的本週工時。跨月的週可以一次選兩個月的檔案。資料只在這台電腦計算，不會上傳。</p>
+
+  <div class="card noprint">
+    <div class="drop" id="drop">把排班匯出的 Excel 拖到這裡（可一次選多個月），或<b>點這裡選檔案</b></div>
+    <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <span class="label">週別</span><select id="week"></select>
+      <button class="btn primary" id="btnCopy">複製本社區週班表</button><span class="label" id="copied"></span>
+      <button class="btn" onclick="window.print()">列印</button>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="label">社區：</span><span id="sites"></span></div>
+    <div id="msg"></div>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="card"><h2 id="title"></h2><div class="stats" id="stats"></div></div>
+    <div class="card">
+      <div class="scroll"><table id="grid"></table></div>
+      <p class="note">橘框＝從別的社區調派來支援。工時依「班別設定」計算（總時數＝上下班時間扣休息）。一般勞工每週正常工時超過 40 小時或休不到 2 天會標紅（勞基法 §30、§36）；保全（84-1）依核備約定書，這裡只顯示不判斷。</p>
+    </div>
+    <div class="card"><h2>本週問題</h2><div id="issues"></div></div>
+  </div>
+</div>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script src="../lib/common.js"></script>
+<script>
+  var $ = HR.$, esc = HR.esc, fmt = HR.fmt;
+  var OFF = { '休': '休息日／月休', '例': '例假', '國': '國定假日調移休', '特': '特休', '假': '其他請假' };
+  var shifts = {}, people = {}, cells = {}, site = '', report = null;   // cells['2026-9-3'][name] = '日@社區'
+
+  HR.bindDrop('drop', 'file', function (files) {
+    var done = 0, names = [];
+    shifts = {}; people = {}; cells = {};
+    files.forEach(function (f) {
+      HR.readWorkbook(f, function (err, wb) {
+        if (err) HR.msg('msg', esc(f.name) + '：' + err.message, true);
+        else { try { readExport(wb); names.push(f.name); } catch (e) { HR.msg('msg', esc(f.name) + '：' + e.message, true); } }
+        if (++done === files.length) {
+          $('drop').innerHTML = '已載入：<b>' + names.map(esc).join('、') + '</b>（點這裡換檔）';
+          buildWeeks();
+        }
+      });
+    });
+  }, true);
+
+  function readExport(wb) {
+    if (wb.SheetNames.indexOf('班表') < 0) throw new Error('沒有「班表」工作表，請用排班設計工具的「匯出 Excel」產生的檔案。');
+    if (wb.SheetNames.indexOf('班別設定') >= 0) HR.rows(wb, '班別設定').slice(1).forEach(function (r) {
+      var name = HR.txt(r[0]); if (!name) return;
+      var code = HR.txt(r[7]) || name.charAt(0), st = toMin(r[1]), en = toMin(r[2]);
+      var span = st === null || en === null ? 0 : (((en - st) + 1440) % 1440 || 1440), total = Math.max(0, span - (HR.num(r[3]) || 0)) / 60;
+      shifts[code] = { code: code, name: name, start: HR.txt(r[1]), end: HR.txt(r[2]), total: total, normal: Math.min(total, HR.num(r[4]) || 8) };
+    });
+    var rs = HR.rows(wb, '班表'), hr = rs.findIndex(function (r) { return r.map(HR.txt).indexOf('姓名') >= 0; });
+    if (hr < 0) throw new Error('班表裡找不到「姓名」欄。');
+    var ym = null;
+    for (var i = 0; i < hr; i++) rs[i].forEach(function (v) { var m = HR.txt(v).match(/^(\d{2,3})\s*[\/年]\s*(\d{1,2})/); if (m && !ym) ym = { y: +m[1] + 1911, m: +m[2] }; });
+    if (!ym) throw new Error('班表第一列找不到月份（例如 115/9）。');
+    var head = rs[hr].map(HR.txt), col = function (k) { return head.indexOf(k); }, dayCol = {};
+    head.forEach(function (v, c) { var n = +v; if (v !== '' && n >= 1 && n <= 31 && n === Math.floor(n)) dayCol[n] = c; });
+    rs.slice(hr + 1).forEach(function (r) {
+      var name = HR.txt(r[col('姓名')]); if (!name) return;
+      people[name] = { name: name, title: HR.txt(r[col('職稱')]), shift: HR.txt(r[col('班別')]), site: HR.txt(r[col('社區')]), rule: HR.txt(r[col('規則')]) || '84-1' };
+      Object.keys(dayCol).forEach(function (d) { var v = HR.txt(r[dayCol[d]]); if (v) { var k = ym.y + '-' + ym.m + '-' + d; (cells[k] = cells[k] || {})[name] = v; } });
+    });
+  }
+  function toMin(t) { var m = HR.txt(t).match(/^(\d{1,2}):(\d{2})/); if (m) return +m[1] * 60 + +m[2]; var n = HR.num(t); return n !== null && n < 1 ? Math.round(n * 1440) : null; }
+  function key(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function cell(name, d) { var v = (cells[key(d)] || {})[name]; if (!v) return null; var k = v.indexOf('@'); return k < 0 ? { c: v, s: null } : { c: v.slice(0, k), s: v.slice(k + 1) }; }
+
+  function buildWeeks() {
+    var dates = Object.keys(cells).map(function (k) { var a = k.split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }).sort(function (a, b) { return a - b; });
+    if (!dates.length) return HR.msg('msg', '檔案裡沒有排班資料。', true);
+    var mondays = [], m = HR.addDays(dates[0], -((dates[0].getDay() + 6) % 7)), end = dates[dates.length - 1];
+    while (m <= end) { mondays.push(m); m = HR.addDays(m, 7); }
+    var t = HR.today(), thisMon = HR.addDays(t, -((t.getDay() + 6) % 7)), def = mondays.findIndex(function (x) { return +x === +thisMon; });
+    if (def < 0) def = 0;
+    $('week').innerHTML = mondays.map(function (x, i) { return '<option value="' + HR.iso(x) + '"' + (i === def ? ' selected' : '') + '>' + HR.ymd(x).slice(5) + '（一）～' + HR.ymd(HR.addDays(x, 6)).slice(5) + '（日）</option>'; }).join('');
+    var ss = {}; Object.keys(people).forEach(function (n) { if (people[n].site) ss[people[n].site] = 1; });
+    Object.keys(cells).forEach(function (k) { Object.keys(cells[k]).forEach(function (n) { var v = cells[k][n], i = v.indexOf('@'); if (i >= 0) ss[v.slice(i + 1)] = 1; }); });
+    var list = Object.keys(ss).sort();
+    if (list.indexOf(site) < 0) site = list[0] || '';
+    $('sites').innerHTML = list.map(function (s) { return '<button class="btn' + (s === site ? ' on' : '') + '" data-s="' + esc(s) + '">' + esc(s) + '</button>'; }).join('');
+    render();
+  }
+  $('sites').onclick = function (e) { var b = e.target.closest('[data-s]'); if (!b) return; site = b.dataset.s; Array.from($('sites').children).forEach(function (x) { x.classList.toggle('on', x === b); }); render(); };
+  $('week').onchange = render;
+
+  function render() {
+    var mon = HR.toDate($('week').value); if (!mon) return;
+    var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return HR.addDays(mon, i); });
+    // 本週有在這個社區上班的人，加上本社區自己的人（休假也列出）
+    var names = Object.keys(people).filter(function (n) {
+      if (people[n].site === site) return true;
+      return days.some(function (d) { var c = cell(n, d); return c && shifts[c.c] && (c.s || people[n].site) === site; });
+    }).sort(function (a, b) { return (people[a].site === site ? 0 : 1) - (people[b].site === site ? 0 : 1) || (people[a].shift || '').localeCompare(people[b].shift || '') || a.localeCompare(b); });
+    var rows = names.map(function (n) {
+      var p = people[n], r = { p: p, total: 0, normal: 0, off: 0, work: 0, cells: [], issues: [] };
+      days.forEach(function (d) {
+        var c = cell(n, d), sh = c && shifts[c.c];
+        if (sh) {
+          var here = (c.s || p.site) === site;
+          r.work++; r.total += sh.total; r.normal += sh.normal;
+          r.cells.push({ cls: 'c k-work' + (c.s && c.s !== p.site ? ' away' : ''), t: here ? sh.code + ' ' + sh.start + '–' + sh.end : '支援 ' + (c.s || p.site), tip: sh.name + (c.s ? '＠' + c.s : '') });
+        } else if (c) {
+          if (c.c === '休' || c.c === '例' || c.c === '國') r.off++;
+          r.cells.push({ cls: 'c ' + (c.c === '國' ? 'k-nat' : (c.c === '休' || c.c === '例') ? 'k-off' : 'k-leave'), t: c.c, tip: OFF[c.c] || c.c });
+        } else r.cells.push({ cls: 'c', t: '', tip: '未排' });
+      });
+      var full = days.every(function (d) { return cells[key(d)]; });
+      if (p.rule === '一般' && r.normal > 40) r.issues.push(['bad', '本週正常工時 ' + fmt(r.normal) + ' 小時，超過 40']);
+      if (p.rule === '一般' && full && r.off < 2) r.issues.push(['bad', '本週只休 ' + r.off + ' 天（應有例假、休息日各 1 天）']);
+      if (r.total > 72) r.issues.push(['mid', '本週總工時 ' + fmt(r.total) + ' 小時']);
+      return r;
+    });
+    var head = '<tr><th class="l">姓名</th><th class="l">職稱</th>' + days.map(function (d) { var h = HR.holiday(d); return '<th class="' + (h ? 'hol' : '') + '" title="' + esc(h) + '">' + (d.getMonth() + 1) + '/' + d.getDate() + '<br>' + HR.WK[d.getDay()] + (h ? '<br>' + esc(h) : '') + '</th>'; }).join('') + '<th>上班</th><th>本週工時</th><th>正常</th></tr>';
+    var body = rows.map(function (r) {
+      return '<tr><td class="l">' + esc(r.p.name) + (r.p.site !== site ? '<br><span class="label">' + esc(r.p.site) + '</span>' : '') + '</td><td class="l">' + esc(r.p.title) + '</td>' +
+        r.cells.map(function (c) { return '<td class="' + c.cls + '" title="' + esc(c.tip) + '">' + esc(c.t) + '</td>'; }).join('') +
+        '<td>' + r.work + '</td><td class="' + (r.issues.length ? 'mid' : '') + '">' + fmt(r.total) + '</td><td class="' + (r.issues.some(function (i) { return i[0] === 'bad'; }) ? 'bad' : '') + '">' + fmt(r.normal) + '</td></tr>';
+    }).join('');
+    // 每日人力（依班別）
+    var codes = Object.keys(shifts), foot = '';
+    codes.forEach(function (code) {
+      var counts = days.map(function (d) { return names.filter(function (n) { var c = cell(n, d); return c && c.c === code && (c.s || people[n].site) === site; }).length; });
+      if (counts.some(Boolean)) foot += '<tr><th class="l" colspan="2">每日 ' + esc(shifts[code].name) + ' 人數</th>' + counts.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '<td colspan="3"></td></tr>';
+    });
+    $('grid').innerHTML = head + body + foot;
+    var mk = HR.ymd(days[0]).slice(5) + '～' + HR.ymd(days[6]).slice(5);
+    $('title').textContent = site + '｜' + mk + ' 週班表';
+    var tot = rows.reduce(function (a, r) { return a + r.total; }, 0), iss = rows.filter(function (r) { return r.issues.length; });
+    $('stats').innerHTML = [['本週人數', rows.length + ' 人', ''], ['總工時', fmt(tot) + ' h', ''], ['平均每人', fmt(rows.length ? tot / rows.length : 0) + ' h', ''],
+      ['支援進來', rows.filter(function (r) { return r.p.site !== site; }).length + ' 人', '別的社區調來'], ['有問題', iss.length + ' 人', '', iss.some(function (r) { return r.issues.some(function (i) { return i[0] === 'bad'; }); })]]
+      .map(function (c) { return '<div class="stat' + (c[3] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="k">' + c[2] + '</div></div>'; }).join('');
+    $('issues').innerHTML = iss.length ? '<ul>' + iss.map(function (r) { return '<li><b>' + esc(r.p.name) + '</b>：' + r.issues.map(function (i) { return '<span class="tag ' + i[0] + '">' + esc(i[1]) + '</span>'; }).join('') + '</li>'; }).join('') + '</ul>' : '<p>沒有問題。</p>';
+    report = { rows: rows, days: days, mk: mk };
+    $('out').classList.remove('hidden');
+  }
+
+  $('btnCopy').onclick = function () {
+    var r = report; if (!r) return HR.msg('msg', '先載入排班檔。', true);
+    var t = '【' + site + '｜' + r.mk + ' 週班表】\n';
+    r.days.forEach(function (d, i) {
+      var groups = {};
+      r.rows.forEach(function (row) { var c = row.cells[i]; if (/k-work/.test(c.cls) && !/^支援/.test(c.t)) (groups[c.t] = groups[c.t] || []).push(row.p.name); });
+      t += '\n' + (d.getMonth() + 1) + '/' + d.getDate() + '（' + HR.WK[d.getDay()] + '）' + (HR.holiday(d) ? HR.holiday(d) : '') + '\n' + (Object.keys(groups).length ? Object.keys(groups).map(function (g) { return '  ' + g + '：' + groups[g].join('、'); }).join('\n') : '  （無人排班）') + '\n';
+    });
+    HR.copyText(t, function () { $('copied').textContent = '已複製'; });
+  };
+</script>
+</body>
+</html>

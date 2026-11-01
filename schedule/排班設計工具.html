@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>排班設計工具</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1d2433; --muted: #5d6676; --line: #d7dce3;
+    --accent: #1f5fbf; --head: #eef1f5; --warn: #b42318; --warn-soft: #fdecea; --amber: #8a5a00; --amber-soft: #fff4dc;
+    --ok: #157347; --ok-soft: #e7f5ec;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 17px; margin: 0 0 10px; }
+  details.card > summary { font-size: 17px; font-weight: 600; cursor: pointer; }
+  details.card[open] > summary { margin-bottom: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .label { color: var(--muted); font-size: 14px; }
+  select, input { font-size: 14px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  input[type=number] { width: 64px; }
+  input.w-name { width: 120px; } input.w-time { width: 70px; } input.w-code { width: 44px; text-align: center; }
+  .btn { border: 1px solid var(--line); background: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger { color: var(--warn); border-color: #e4b4ae; }
+  .brush { min-width: 44px; font-weight: 700; }
+  .brush.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 22px; font-weight: 700; }
+  .stat .k { color: var(--muted); font-size: 13px; }
+  .stat.alert .v { color: var(--warn); }
+  .scroll { overflow: auto; max-height: 70vh; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { border: 1px solid var(--line); padding: 3px 5px; text-align: center; white-space: nowrap; }
+  th { background: var(--head); font-weight: 600; font-size: 13px; }
+  table.form td, table.form th { padding: 4px 6px; }
+  #grid { user-select: none; font-size: 13px; }
+  #grid thead th { position: sticky; top: 0; z-index: 2; }
+  #grid .nm { position: sticky; left: 0; background: #fff; z-index: 1; text-align: left; cursor: pointer; color: var(--accent); }
+  #grid thead .nm { z-index: 3; background: var(--head); color: var(--ink); cursor: default; }
+  #grid td.c { width: 30px; min-width: 30px; cursor: crosshair; font-weight: 600; }
+  #grid th.hol { background: #fbd5d1; color: var(--warn); }
+  #grid th.we { background: #e4e7ec; }
+  .k-shift { background: #e6eefb; color: #1f4a8a; }
+  .k-shift2 { background: #ece6fb; color: #4b2a8a; }
+  .k-shift3 { background: #e3f4f4; color: #0f5b5b; }
+  .k-off { background: #f1f2f4; color: #6b7280; }
+  .k-nat { background: var(--ok-soft); color: var(--ok); }
+  .k-leave { background: var(--amber-soft); color: var(--amber); }
+  td.away { box-shadow: inset 0 0 0 2px #c07a00; }
+  td.gapbad { box-shadow: inset 0 0 0 2px var(--warn); }
+  td.bad, span.bad { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+  td.mid { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
+  td.good { color: var(--ok); }
+  tfoot td, tfoot th { background: #fafbfc; }
+  tfoot th { text-align: left; position: sticky; left: 0; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 13px; margin: 1px 2px; }
+  .tag.bad { background: var(--warn-soft); color: var(--warn); }
+  .tag.mid { background: var(--amber-soft); color: var(--amber); }
+  ul.issues { margin: 0; padding-left: 18px; }
+  ul.issues li { margin: 3px 0; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .msg { padding: 8px 12px; border-radius: 8px; margin-top: 10px; font-size: 14px; background: #eef4fd; color: #1f4a8a; }
+  .msg.err { background: var(--warn-soft); color: var(--warn); }
+  textarea { width: 100%; font: 14px/1.6 inherit; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; max-width: 520px; width: calc(100% - 32px); }
+  .hidden { display: none !important; }
+  @media print {
+    body { background: #fff; }
+    .noprint, details.card, #issuesCard { display: none !important; }
+    .scroll { max-height: none; overflow: visible; }
+    #grid { font-size: 9px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>排班設計工具</h1>
+  <p class="sub">邊排邊檢查：月休、正常工時、連續上班、輪班間隔、社區人力。資料只存在這台電腦的瀏覽器裡，不會上傳；換電腦請用「匯出 Excel」帶走。</p>
+
+  <div class="card noprint">
+    <div class="row">
+      <span class="label">排班月份：民國</span><input type="number" id="yRoc" min="110" max="130" style="width:70px"><span class="label">年</span>
+      <select id="mon"></select>
+      <span class="label">只看社區：</span><select id="fSite"></select>
+      <button class="btn primary" id="btnAuto">自動排班（只補空白格）</button>
+      <button class="btn" id="btnExport">匯出 Excel</button>
+      <button class="btn" id="btnImport">匯入 Excel</button>
+      <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+      <button class="btn" onclick="window.print()">列印</button>
+      <button class="btn" id="btnSample">載入範例（假資料）</button>
+      <button class="btn danger" id="btnClear">清空本月班表</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="label">畫筆：</span><span id="brushes" class="row"></span>
+      <span class="label">派到：</span><select id="brushSite"></select>
+    </div>
+    <div class="note">先點畫筆，再點或拖曳格子。「派到」選別的社區＝調派（格子會有橘框）。點姓名可複製個人班表貼到 LINE。</div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card noprint"><div class="stats" id="stats"></div></div>
+
+  <div class="card">
+    <h2 id="gridTitle"></h2>
+    <div class="scroll"><table id="grid"></table></div>
+    <div class="note">代碼：<span id="legend"></span>。紅框＝和前一天的班間隔不到規定小時數；橘框＝調派到別的社區。下方「人力」列：實排／需求，紅＝不足、黃＝超排。</div>
+  </div>
+
+  <div class="card" id="issuesCard">
+    <h2>要處理的問題</h2>
+    <div id="issues"></div>
+  </div>
+
+  <details class="card noprint" id="peopleBox">
+    <summary>人員名單（<span id="peopleCount">0</span> 人）</summary>
+    <div class="scroll" style="max-height:50vh"><table class="form" id="peopleTbl"></table></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="btnAddPerson">新增一人</button>
+    </div>
+    <p class="note">也可以從 Excel 複製貼上（欄位順序：姓名、職稱、班別代碼、社區、規則（84-1 或 一般）、月休天數），一行一人：</p>
+    <textarea id="paste" rows="4" placeholder="王小明	日班保全	日	某某社區	84-1	8"></textarea>
+    <div class="row" style="margin-top:6px"><button class="btn" id="btnPaste">把貼上的人加進名單</button></div>
+  </details>
+
+  <details class="card noprint">
+    <summary>班別設定</summary>
+    <table class="form" id="shiftTbl"></table>
+    <div class="row" style="margin-top:10px"><button class="btn" id="btnAddShift">新增班別</button></div>
+    <p class="note">代碼用一個字，畫在班表上。正常工時＝這個班算正常工時的時數，超過的部分算加班。</p>
+  </details>
+
+  <details class="card noprint">
+    <summary>社區人力需求</summary>
+    <table class="form" id="siteTbl"></table>
+    <div class="row" style="margin-top:10px"><button class="btn" id="btnAddSite">新增社區</button></div>
+    <p class="note">每天每個班別需要幾個人。自動排班會先排滿這裡的需求。</p>
+  </details>
+
+  <details class="card noprint">
+    <summary>檢查規則</summary>
+    <div class="row">
+      <span class="label">保全（84-1）：每月正常工時上限</span><input type="number" id="rMNormal">
+      <span class="label">每月總工時上限</span><input type="number" id="rMTotal">
+      <span class="label">連續上班上限</span><input type="number" id="rMaxRun"><span class="label">天</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="label">一般勞工：每月加班上限</span><input type="number" id="rOtCap"><span class="label">小時（勞基法§32）</span>
+      <span class="label">輪班間隔至少</span><input type="number" id="rGap"><span class="label">小時（§34）</span>
+    </div>
+    <p class="note">保全的數字請以送縣市政府核備的 84-1 約定書為準。一般勞工另外檢查：連續上班不超過 6 天、每個完整週至少 2 天休（§36）。</p>
+  </details>
+</div>
+
+<dialog id="lineDlg">
+  <h3 style="margin-top:0">個人班表（貼到 LINE）</h3>
+  <textarea id="lineText" rows="12"></textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:8px">
+    <span id="copied" class="label"></span>
+    <button class="btn primary" id="btnCopy">複製</button>
+    <button class="btn" onclick="document.getElementById('lineDlg').close()">關閉</button>
+  </div>
+</dialog>
+
+<script src="../lib/xlsx.full.min.js"></script>
+<script>
+  // 國定假日（紀念日及節日實施條例第 4、6 條；實際以人事行政總處公告為準）
+  var HOLIDAYS = {
+    2026: { '1-1': '開國紀念日', '2-15': '小年夜', '2-16': '除夕', '2-17': '春節', '2-18': '春節', '2-19': '春節',
+      '2-28': '和平紀念日', '4-4': '兒童節', '4-5': '民族掃墓節', '5-1': '勞動節', '6-19': '端午節',
+      '9-25': '中秋節', '9-28': '教師節', '10-10': '國慶日', '10-25': '光復紀念日', '12-25': '行憲紀念日' },
+    2027: { '1-1': '開國紀念日', '2-4': '小年夜', '2-5': '除夕', '2-6': '春節', '2-7': '春節', '2-8': '春節',
+      '2-28': '和平紀念日', '4-4': '兒童節', '4-5': '民族掃墓節', '5-1': '勞動節', '6-9': '端午節',
+      '9-15': '中秋節', '9-28': '教師節', '10-10': '國慶日', '10-25': '光復紀念日', '12-25': '行憲紀念日' }
+  };
+  var OFF = { '休': '休息日／月休', '例': '例假', '國': '國定假日調移休', '特': '特休', '假': '其他請假' };
+  var REST_CODES = { '休': 1, '例': 1 };
+  var WK = '日一二三四五六';
+  var STORE = 'schedule-tool-v1';
+  var state = null, brush = '日', painting = false, refreshTimer = null;
+
+  function defaults() {
+    return {
+      shifts: [
+        { code: '日', name: '日班12H', start: '07:00', end: '19:00', rest: 0, normal: 10 },
+        { code: '夜', name: '夜班12H', start: '19:00', end: '07:00', rest: 0, normal: 10 },
+        { code: '辦', name: '辦公室9H', start: '08:00', end: '17:00', rest: 60, normal: 8 }
+      ],
+      sites: [], people: [], seq: 0,
+      rules: { mNormal: 240, mTotal: 288, maxRun: 6, otCap: 46, gap: 11 },
+      grids: {}, y: null, m: null
+    };
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function fmt(n) { return (Math.round(n * 10) / 10).toLocaleString('zh-TW'); }
+  function toMin(t) { var m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} }
+  function load() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) {}
+    state = s && s.shifts ? s : defaults();
+    if (!state.y) { var d = new Date(); d.setMonth(d.getMonth() + 1); state.y = d.getFullYear(); state.m = d.getMonth() + 1; }
+  }
+  function showMsg(t, err) { $('msg').innerHTML = t ? '<div class="msg' + (err ? ' err' : '') + '">' + t + '</div>' : ''; }
+
+  // ── 基本查詢 ──
+  function ymKey() { return state.y + '-' + state.m; }
+  function nDays() { return new Date(state.y, state.m, 0).getDate(); }
+  function grid() { return state.grids[ymKey()] || (state.grids[ymKey()] = {}); }
+  function row(pid) { var g = grid(); return g[pid] || (g[pid] = {}); }
+  function shiftOf(code) { for (var i = 0; i < state.shifts.length; i++) if (state.shifts[i].code === code) return state.shifts[i]; return null; }
+  function shiftIdx(code) { for (var i = 0; i < state.shifts.length; i++) if (state.shifts[i].code === code) return i; return -1; }
+  function person(pid) { for (var i = 0; i < state.people.length; i++) if (state.people[i].id === pid) return state.people[i]; return null; }
+  function cell(pid, d) { var v = (state.grids[ymKey()] || {})[pid]; v = v && v[d]; if (!v) return null; var k = v.indexOf('@'); return k < 0 ? { c: v, s: null } : { c: v.slice(0, k), s: v.slice(k + 1) }; }
+  function siteAt(p, d) { var x = cell(p.id, d); return x && shiftOf(x.c) ? (x.s || p.site) : null; }
+  function holName(d) { return (HOLIDAYS[state.y] || {})[state.m + '-' + d] || ''; }
+  function hours(s) {
+    var st = toMin(s.start), en = toMin(s.end);
+    var span = st === null || en === null ? 0 : (((en - st) + 1440) % 1440 || 1440);
+    var total = Math.max(0, span - (+s.rest || 0)) / 60, normal = Math.min(total, +s.normal || 0);
+    return { st: st, span: span, total: total, normal: normal, ot: total - normal };
+  }
+  function maxRunFor(p) { return p.rule === '一般' ? 6 : (+state.rules.maxRun || 6); }
+
+  // 第 d 天之前連續上班幾天
+  function runBefore(p, d) { var n = 0; for (var i = d - 1; i >= 1; i--) { var x = cell(p.id, i); if (x && shiftOf(x.c)) n++; else break; } return n; }
+  // 前一天的班結束到今天的班開始，間隔幾小時（沒有前後班回傳 null）
+  function gapHours(p, d, code) {
+    var prev = d > 1 ? cell(p.id, d - 1) : null, ps = prev && shiftOf(prev.c), s = shiftOf(code);
+    if (!ps || !s) return null;
+    var a = hours(ps), b = hours(s);
+    return ((1440 + b.st) - (a.st + a.span)) / 60;
+  }
+  function gapOK(p, d, code) {
+    var g = gapHours(p, d, code); if (g !== null && g < state.rules.gap) return false;
+    var nx = d < nDays() ? cell(p.id, d + 1) : null;
+    if (nx && shiftOf(nx.c)) {
+      var a = hours(shiftOf(code)), b = hours(shiftOf(nx.c));
+      if (((1440 + b.st) - (a.st + a.span)) / 60 < state.rules.gap) return false;
+    }
+    return true;
+  }
+
+  // ── 每人檢查 ──
+  function checkPerson(p) {
+    var n = nDays(), R = state.rules, s = { work: 0, rest: 0, nat: 0, leave: 0, blank: 0, normal: 0, ot: 0, total: 0, holWork: 0, away: 0, run: 0, issues: [], gapDays: {} };
+    var run = 0;
+    for (var d = 1; d <= n; d++) {
+      var x = cell(p.id, d), sh = x && shiftOf(x.c);
+      if (!x) { s.blank++; run = 0; continue; }
+      if (sh) {
+        var h = hours(sh);
+        s.work++; s.normal += h.normal; s.ot += h.ot; s.total += h.total;
+        if (h.total > 12) s.issues.push(['bad', d + ' 日排「' + sh.name + '」' + fmt(h.total) + ' 小時，超過每日 12 小時']);
+        if (holName(d)) s.holWork++;
+        if (x.s && x.s !== p.site) s.away++;
+        run++; s.run = Math.max(s.run, run);
+        var g = gapHours(p, d, x.c);
+        if (g !== null && g < R.gap) { s.gapDays[d] = 1; s.issues.push(['bad', (d - 1) + '→' + d + ' 日換班只隔 ' + fmt(g) + ' 小時（至少 ' + R.gap + '）']); }
+      } else {
+        run = 0;
+        if (REST_CODES[x.c]) s.rest++; else if (x.c === '國') s.nat++; else s.leave++;
+      }
+    }
+    if (s.blank) s.issues.push(['mid', s.blank + ' 天還沒排']);
+    if (s.run > maxRunFor(p)) s.issues.push(['bad', '連續上班 ' + s.run + ' 天（上限 ' + maxRunFor(p) + '）']);
+    if (p.rule === '一般') {
+      if (s.ot > R.otCap) s.issues.push(['bad', '加班 ' + fmt(s.ot) + ' 小時，超過每月 ' + R.otCap]);
+      for (var d1 = 1; d1 <= n; d1++) {
+        if (new Date(state.y, state.m - 1, d1).getDay() !== 1 || d1 + 6 > n) continue;
+        var off = 0;
+        for (var k = d1; k < d1 + 7; k++) { var y = cell(p.id, k); if (y && !shiftOf(y.c)) off++; }
+        if (off < 2) s.issues.push(['bad', d1 + '～' + (d1 + 6) + ' 日這週只休 ' + off + ' 天（每 7 天要有例假、休息日各 1 天）']);
+      }
+    } else {
+      if (s.normal > R.mNormal) s.issues.push(['bad', '正常工時 ' + fmt(s.normal) + ' 小時，超過 ' + R.mNormal]);
+      if (s.total > R.mTotal) s.issues.push(['bad', '總工時 ' + fmt(s.total) + ' 小時，超過 ' + R.mTotal]);
+    }
+    if (!s.blank && s.rest < (+p.off || 0)) s.issues.push(['bad', '月休排了 ' + s.rest + ' 天，約定 ' + p.off + ' 天']);
+    if (s.holWork) s.issues.push(['mid', '國定假日上班 ' + s.holWork + ' 天（沒有調移同意書要加倍發工資）']);
+    return s;
+  }
+
+  // ── 社區人力 ──
+  function coverage(site, code, d) {
+    var n = 0;
+    state.people.forEach(function (p) { var x = cell(p.id, d); if (x && x.c === code && (x.s || p.site) === site) n++; });
+    return n;
+  }
+  function needRows() {
+    var out = [], f = $('fSite').value;
+    state.sites.forEach(function (st) {
+      if (f && st.name !== f) return;
+      state.shifts.forEach(function (sh) { if (+(st.need[sh.code] || 0) > 0) out.push({ site: st.name, code: sh.code, need: +st.need[sh.code] }); });
+    });
+    return out;
+  }
+
+  // ── 自動排班：只補空白格 ──
+  function autoFill() {
+    var n = nDays(), f = $('fSite').value;
+    var ppl = state.people.filter(function (p) { return !f || p.site === f; });
+    var need = {}, target = {};
+    ppl.forEach(function (p) {
+      var r = row(p.id), work = 0, other = 0;
+      for (var d = 1; d <= n; d++) { var x = cell(p.id, d); if (!x) continue; if (shiftOf(x.c)) work++; else if (!REST_CODES[x.c]) other++; }
+      target[p.id] = Math.max(0, n - (+p.off || 0) - other);
+      need[p.id] = target[p.id] - work;
+    });
+    function blanksFrom(p, d) { var b = 0; for (var i = d; i <= n; i++) if (!cell(p.id, i)) b++; return b; }
+    function workedBefore(p, d) { var w = 0; for (var i = 1; i < d; i++) { var x = cell(p.id, i); if (x && shiftOf(x.c)) w++; } return w; }
+    function canWork(p, d, code) { return need[p.id] > 0 && runBefore(p, d) < maxRunFor(p) && gapOK(p, d, code); }
+    var filled = 0;
+    for (var d = 1; d <= n; d++) {
+      // 1. 先排滿社區需求
+      state.sites.forEach(function (st) {
+        if (f && st.name !== f) return;
+        state.shifts.forEach(function (sh) {
+          var req = +(st.need[sh.code] || 0); if (!req) return;
+          var have = coverage(st.name, sh.code, d);
+          var cand = ppl.filter(function (p) { return p.site === st.name && p.shift === sh.code && !cell(p.id, d) && canWork(p, d, sh.code); });
+          cand.sort(function (a, b) { return runBefore(a, d) - runBefore(b, d) || need[b.id] / blanksFrom(b, d) - need[a.id] / blanksFrom(a, d); });
+          for (var i = 0; i < cand.length && have < req; i++, have++) { row(cand[i].id)[d] = sh.code; need[cand[i].id]--; filled++; }
+        });
+      });
+      // 2. 其餘的人：照進度平均分配上班天，該休就休。
+      //    多排的班要先確認同組（同社區、同班別）剩下的上班天數，夠撐完月底的需求
+      var slack = {};
+      state.sites.forEach(function (st) {
+        state.shifts.forEach(function (sh) {
+          var req = +(st.need[sh.code] || 0); if (!req) return;
+          var cap = 0; ppl.forEach(function (p) { if (p.site === st.name && p.shift === sh.code) cap += Math.max(0, need[p.id]); });
+          slack[st.name + '|' + sh.code] = cap - req * (n - d);
+        });
+      });
+      ppl.forEach(function (p) {
+        if (cell(p.id, d)) return;
+        var key = p.site + '|' + p.shift, forced = need[p.id] >= blanksFrom(p, d);
+        // 非必要的上班不排到連續上限，留給真正缺人的日子
+        var onPace = workedBefore(p, d) + 1 <= Math.round(target[p.id] * d / n) && runBefore(p, d) < maxRunFor(p) - 2 && (slack[key] === undefined || slack[key] > 0);
+        if (shiftOf(p.shift) && (forced || onPace) && canWork(p, d, p.shift)) { row(p.id)[d] = p.shift; need[p.id]--; if (slack[key] !== undefined) slack[key]--; }
+        else row(p.id)[d] = '休';
+        filled++;
+      });
+    }
+    save(); renderAll();
+    showMsg('自動排班完成，補了 ' + filled + ' 格。原本已經排好的格子沒有動。請看下方「要處理的問題」再手動調整。');
+  }
+
+  // ── 畫面：班表 ──
+  function filteredPeople() {
+    var f = $('fSite').value, n = nDays();
+    return state.people.filter(function (p) {
+      if (!f || p.site === f) return true;
+      for (var d = 1; d <= n; d++) if (siteAt(p, d) === f) return true;
+      return false;
+    });
+  }
+  function cellClass(p, d) {
+    var x = cell(p.id, d); if (!x) return 'c';
+    var k = shiftOf(x.c) ? ['k-shift', 'k-shift2', 'k-shift3'][shiftIdx(x.c) % 3] : (REST_CODES[x.c] ? 'k-off' : x.c === '國' ? 'k-nat' : 'k-leave');
+    return 'c ' + k + (x.s && x.s !== p.site ? ' away' : '');
+  }
+  function cellHtml(p, d) {
+    var x = cell(p.id, d), t = x ? x.c : '', tip = x ? (shiftOf(x.c) ? shiftOf(x.c).name : OFF[x.c] || x.c) + (x.s ? '＠' + x.s : '') : '';
+    return '<td class="' + cellClass(p, d) + '" data-d="' + d + '" title="' + esc(tip) + '">' + esc(t) + '</td>';
+  }
+  function sumCells(p, s) {
+    var lim = p.rule === '一般' ? null : state.rules.mNormal;
+    var bad = s.issues.filter(function (i) { return i[0] === 'bad'; }).length;
+    return '<td>' + s.work + '</td><td class="' + (s.blank ? '' : (s.rest < (+p.off || 0) ? 'bad' : '')) + '">' + s.rest + '/' + (p.off || 0) + '</td><td>' + s.nat + '</td>' +
+      '<td class="' + (lim && s.normal > lim ? 'bad' : '') + '">' + fmt(s.normal) + '</td><td>' + fmt(s.ot) + '</td>' +
+      '<td class="' + (bad ? 'bad' : (s.issues.length ? 'mid' : 'good')) + '">' + (bad ? bad + ' 項' : (s.issues.length ? '提醒' : '✓')) + '</td>';
+  }
+  function renderGrid() {
+    var n = nDays(), P = filteredPeople(), h = '<thead><tr><th class="nm">姓名</th><th>班別</th><th>社區</th>';
+    for (var d = 1; d <= n; d++) {
+      var wd = new Date(state.y, state.m - 1, d).getDay(), hn = holName(d);
+      h += '<th class="' + (hn ? 'hol' : (wd % 6 === 0 ? 'we' : '')) + '" title="' + esc(hn) + '">' + d + '<br>' + WK[wd] + '</th>';
+    }
+    h += '<th>上班</th><th>月休</th><th>國</th><th>正常h</th><th>加班h</th><th>檢查</th></tr></thead><tbody>';
+    P.forEach(function (p) {
+      var s = checkPerson(p);
+      h += '<tr data-pid="' + p.id + '"><td class="nm" title="點我複製個人班表">' + esc(p.name) + '</td><td>' + esc(p.shift) + '</td><td>' + esc(p.site) + '</td>';
+      for (var d = 1; d <= n; d++) h += cellHtml(p, d).replace('class="c', 'class="c' + (s.gapDays[d] ? ' gapbad' : ''));
+      h += sumCells(p, s) + '</tr>';
+    });
+    h += '</tbody><tfoot>';
+    needRows().forEach(function (r) {
+      h += '<tr data-need="' + esc(r.site) + '|' + esc(r.code) + '"><th colspan="3">人力｜' + esc(r.site) + '｜' + esc(r.code) + '（需 ' + r.need + '）</th>';
+      for (var d = 1; d <= n; d++) h += needCell(r, d);
+      h += '<td colspan="6"></td></tr>';
+    });
+    h += '</tfoot>';
+    $('grid').innerHTML = h;
+    $('gridTitle').textContent = (state.y - 1911) + ' 年 ' + state.m + ' 月班表（' + P.length + ' 人）';
+    if (!state.people.length) $('gridTitle').textContent += '｜還沒有人員：先按「載入範例」，或在下方「人員名單」新增';
+  }
+  function needCell(r, d) {
+    var c = coverage(r.site, r.code, d);
+    return '<td data-d="' + d + '" class="' + (c < r.need ? 'bad' : (c > r.need ? 'mid' : 'good')) + '">' + c + '/' + r.need + '</td>';
+  }
+
+  // 畫一格：只更新那一列與人力列，大名單也不會卡
+  function paint(td) {
+    var tr = td.parentNode, pid = tr.dataset.pid, d = +td.dataset.d, p = person(pid);
+    if (!p || !d) return;
+    var site = $('brushSite').value, v;
+    if (brush === '') v = null;
+    else if (shiftOf(brush) && site && site !== p.site) v = brush + '@' + site;
+    else v = brush;
+    var r = row(pid);
+    if ((r[d] || null) === v) return;
+    if (v) r[d] = v; else delete r[d];
+    var s = checkPerson(p), n = nDays(), tds = tr.querySelectorAll('td.c');
+    for (var i = 0; i < tds.length; i++) {
+      var dd = +tds[i].dataset.d;
+      if (dd === d) { var tmp = document.createElement('tbody'); tmp.innerHTML = '<tr>' + cellHtml(p, d) + '</tr>'; tds[i].className = tmp.firstChild.firstChild.className; tds[i].textContent = tmp.firstChild.firstChild.textContent; tds[i].title = tmp.firstChild.firstChild.title; }
+      tds[i].classList.toggle('gapbad', !!s.gapDays[dd]);
+    }
+    var tail = document.createElement('tbody'); tail.innerHTML = '<tr>' + sumCells(p, s) + '</tr>';
+    var cells = tr.children, k = cells.length - 6;
+    for (var j = 0; j < 6; j++) { cells[k + j].className = tail.firstChild.children[j].className; cells[k + j].innerHTML = tail.firstChild.children[j].innerHTML; }
+    needRows().forEach(function (rr) {
+      var trn = document.querySelector('tr[data-need="' + rr.site.replace(/"/g, '\\"') + '|' + rr.code + '"]');
+      if (!trn) return;
+      var t = trn.querySelector('td[data-d="' + d + '"]'), tmp2 = document.createElement('tbody');
+      tmp2.innerHTML = '<tr>' + needCell(rr, d) + '</tr>';
+      t.className = tmp2.firstChild.firstChild.className; t.textContent = tmp2.firstChild.firstChild.textContent;
+    });
+    clearTimeout(refreshTimer); refreshTimer = setTimeout(function () { save(); renderStats(); renderIssues(); }, 250);
+  }
+
+  function renderStats() {
+    var P = filteredPeople(), n = nDays(), filled = 0, bad = 0, ot = 0, hol = 0, away = 0, short = 0;
+    P.forEach(function (p) { var s = checkPerson(p); filled += n - s.blank; ot += s.ot; hol += s.holWork; away += s.away; if (s.issues.some(function (i) { return i[0] === 'bad'; })) bad++; });
+    needRows().forEach(function (r) { for (var d = 1; d <= n; d++) if (coverage(r.site, r.code, d) < r.need) short++; });
+    var cards = [
+      ['人數', P.length + ' 人', ''],
+      ['排班完成度', P.length ? Math.round(filled / (P.length * n) * 100) + '%' : '—', '已填格子'],
+      ['人力不足', short + ' 班次', '社區×班別×天', short > 0],
+      ['有違規的人', bad + ' 人', '見下方問題', bad > 0],
+      ['加班時數', fmt(ot) + ' h', '依班別設定估算'],
+      ['國定假日上班', hol + ' 人日', '未調移要加倍'],
+      ['調派', away + ' 人日', '派到本人社區以外']
+    ];
+    $('stats').innerHTML = cards.map(function (c) { return '<div class="stat' + (c[3] ? ' alert' : '') + '"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="k">' + c[2] + '</div></div>'; }).join('');
+  }
+  function renderIssues() {
+    var n = nDays(), h = '', shortList = [];
+    needRows().forEach(function (r) {
+      var days = []; for (var d = 1; d <= n; d++) if (coverage(r.site, r.code, d) < r.need) days.push(d);
+      if (days.length) shortList.push('<li><span class="tag bad">人力不足</span>' + esc(r.site) + '「' + esc(r.code) + '」班：' + days.join('、') + ' 日</li>');
+    });
+    var per = [];
+    filteredPeople().forEach(function (p) {
+      var s = checkPerson(p); if (!s.issues.length) return;
+      per.push('<li><b>' + esc(p.name) + '</b>：' + s.issues.map(function (i) { return '<span class="tag ' + i[0] + '">' + esc(i[1]) + '</span>'; }).join('') + '</li>');
+    });
+    h = shortList.concat(per).join('');
+    $('issues').innerHTML = h ? '<ul class="issues">' + h + '</ul>' : '<p>沒有問題。</p>';
+  }
+
+  // ── 設定表單 ──
+  function renderBrushes() {
+    var codes = state.shifts.map(function (s) { return [s.code, s.name]; }).concat(Object.keys(OFF).map(function (k) { return [k, OFF[k]]; })).concat([['', '清除']]);
+    if (!codes.some(function (c) { return c[0] === brush; })) brush = state.shifts[0] ? state.shifts[0].code : '休';
+    $('brushes').innerHTML = codes.map(function (c) { return '<button class="btn brush' + (c[0] === brush ? ' on' : '') + '" data-b="' + esc(c[0]) + '" title="' + esc(c[1]) + '">' + esc(c[0] || '✕') + '</button>'; }).join('');
+    $('legend').innerHTML = codes.filter(function (c) { return c[0]; }).map(function (c) { return esc(c[0]) + '＝' + esc(c[1]); }).join('、');
+  }
+  function siteOptions(sel, withBlank, blankText) {
+    return (withBlank ? '<option value="">' + blankText + '</option>' : '') + state.sites.map(function (s) { return '<option' + (s.name === sel ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('');
+  }
+  function renderPeople() {
+    var h = '<tr><th>姓名</th><th>職稱</th><th>班別</th><th>社區</th><th>規則</th><th>月休</th><th></th></tr>';
+    state.people.forEach(function (p, i) {
+      h += '<tr data-i="' + i + '"><td><input class="w-name" data-k="name" value="' + esc(p.name) + '"></td><td><input class="w-name" data-k="title" value="' + esc(p.title) + '"></td>' +
+        '<td><select data-k="shift">' + state.shifts.map(function (s) { return '<option value="' + esc(s.code) + '"' + (s.code === p.shift ? ' selected' : '') + '>' + esc(s.code + ' ' + s.name) + '</option>'; }).join('') + '</select></td>' +
+        '<td><select data-k="site">' + siteOptions(p.site, true, '（未指定）') + '</select></td>' +
+        '<td><select data-k="rule"><option' + (p.rule !== '一般' ? ' selected' : '') + '>84-1</option><option' + (p.rule === '一般' ? ' selected' : '') + '>一般</option></select></td>' +
+        '<td><input type="number" data-k="off" min="0" max="15" value="' + esc(p.off) + '"></td><td><button class="btn danger" data-del="' + i + '">刪除</button></td></tr>';
+    });
+    $('peopleTbl').innerHTML = h;
+    $('peopleCount').textContent = state.people.length;
+  }
+  function renderShifts() {
+    var h = '<tr><th>代碼</th><th>名稱</th><th>上班</th><th>下班</th><th>休息（分）</th><th>正常工時</th><th>總時數</th><th></th></tr>';
+    state.shifts.forEach(function (s, i) {
+      var hh = hours(s);
+      h += '<tr data-i="' + i + '"><td><input class="w-code" data-k="code" maxlength="1" value="' + esc(s.code) + '"></td><td><input class="w-name" data-k="name" value="' + esc(s.name) + '"></td>' +
+        '<td><input class="w-time" data-k="start" value="' + esc(s.start) + '"></td><td><input class="w-time" data-k="end" value="' + esc(s.end) + '"></td>' +
+        '<td><input type="number" data-k="rest" value="' + esc(s.rest) + '"></td><td><input type="number" data-k="normal" value="' + esc(s.normal) + '"></td>' +
+        '<td class="' + (hh.total > 12 ? 'bad' : '') + '">' + fmt(hh.total) + '</td><td><button class="btn danger" data-del="' + i + '">刪除</button></td></tr>';
+    });
+    $('shiftTbl').innerHTML = h;
+  }
+  function renderSites() {
+    var h = '<tr><th>社區</th>' + state.shifts.map(function (s) { return '<th>' + esc(s.code) + ' 需要人數</th>'; }).join('') + '<th></th></tr>';
+    state.sites.forEach(function (st, i) {
+      h += '<tr data-i="' + i + '"><td><input class="w-name" data-k="name" value="' + esc(st.name) + '"></td>' +
+        state.shifts.map(function (s) { return '<td><input type="number" min="0" data-need="' + esc(s.code) + '" value="' + esc(st.need[s.code] || 0) + '"></td>'; }).join('') +
+        '<td><button class="btn danger" data-del="' + i + '">刪除</button></td></tr>';
+    });
+    $('siteTbl').innerHTML = h;
+  }
+  function renderRules() {
+    var R = state.rules;
+    $('rMNormal').value = R.mNormal; $('rMTotal').value = R.mTotal; $('rMaxRun').value = R.maxRun; $('rOtCap').value = R.otCap; $('rGap').value = R.gap;
+  }
+  function renderTop() {
+    $('yRoc').value = state.y - 1911;
+    $('mon').innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (m) { return '<option value="' + m + '"' + (m === state.m ? ' selected' : '') + '>' + m + ' 月</option>'; }).join('');
+    var f = $('fSite').value;
+    $('fSite').innerHTML = siteOptions(f, true, '全部');
+    $('brushSite').innerHTML = siteOptions($('brushSite').value, true, '本人社區');
+    if (!HOLIDAYS[state.y]) showMsg('⚠ 程式裡還沒有 ' + state.y + ' 年的國定假日，國定假日檢查不會運作。', true);
+  }
+  function renderAll() { renderTop(); renderBrushes(); renderGrid(); renderStats(); renderIssues(); renderPeople(); renderShifts(); renderSites(); renderRules(); }
+
+  // ── 事件 ──
+  $('grid').addEventListener('mousedown', function (e) {
+    var td = e.target.closest('td.c'); if (!td) return;
+    painting = true; paint(td); e.preventDefault();
+  });
+  $('grid').addEventListener('mouseover', function (e) { if (!painting) return; var td = e.target.closest('td.c'); if (td) paint(td); });
+  document.addEventListener('mouseup', function () { painting = false; });
+  $('grid').addEventListener('click', function (e) {
+    var nm = e.target.closest('tbody td.nm'); if (!nm) return;
+    openLine(person(nm.parentNode.dataset.pid));
+  });
+  $('brushes').addEventListener('click', function (e) { var b = e.target.closest('[data-b]'); if (!b) return; brush = b.dataset.b; renderBrushes(); });
+  $('yRoc').onchange = $('mon').onchange = function () {
+    var y = +$('yRoc').value + 1911, m = +$('mon').value;
+    if (y > 2000 && m) { state.y = y; state.m = m; save(); showMsg(''); renderAll(); }
+  };
+  $('fSite').onchange = function () { renderGrid(); renderStats(); renderIssues(); };
+  $('btnAuto').onclick = function () {
+    if (!state.people.length) return showMsg('還沒有人員。', true);
+    autoFill();
+  };
+  var clearArmed = false;
+  $('btnClear').onclick = function () {
+    if (!clearArmed) { clearArmed = true; $('btnClear').textContent = '再按一次確認清空'; setTimeout(function () { clearArmed = false; $('btnClear').textContent = '清空本月班表'; }, 4000); return; }
+    clearArmed = false; $('btnClear').textContent = '清空本月班表';
+    var f = $('fSite').value, g = grid();
+    filteredPeople().forEach(function (p) { if (!f || p.site === f) delete g[p.id]; });
+    save(); renderAll(); showMsg('已清空' + (f ? '「' + f + '」' : '') + '本月班表。');
+  };
+  function bindForm(tblId, list, after) {
+    $(tblId).addEventListener('change', function (e) {
+      var tr = e.target.closest('tr[data-i]'); if (!tr) return;
+      var obj = list()[+tr.dataset.i], k = e.target.dataset.k, nk = e.target.dataset.need;
+      if (nk) obj.need[nk] = +e.target.value || 0;
+      else if (k) {
+        var v = e.target.type === 'number' ? (+e.target.value || 0) : e.target.value.trim();
+        if (tblId === 'shiftTbl' && k === 'code') {
+          if (!v || OFF[v] || state.shifts.some(function (s, j) { return s.code === v && j !== +tr.dataset.i; })) { showMsg('班別代碼要一個字，不能和其他代碼或休假代碼重複。', true); return renderShifts(); }
+          var old = obj.code; state.people.forEach(function (p) { if (p.shift === old) p.shift = v; });
+          state.sites.forEach(function (st) { if (st.need[old] !== undefined) { st.need[v] = st.need[old]; delete st.need[old]; } });
+        }
+        if (tblId === 'siteTbl' && k === 'name') { var oldn = obj.name; state.people.forEach(function (p) { if (p.site === oldn) p.site = v; }); }
+        obj[k] = v;
+      }
+      save(); after();
+    });
+    $(tblId).addEventListener('click', function (e) {
+      var b = e.target.closest('[data-del]'); if (!b) return;
+      list().splice(+b.dataset.del, 1); save(); after();
+    });
+  }
+  bindForm('peopleTbl', function () { return state.people; }, function () { renderPeople(); renderGrid(); renderStats(); renderIssues(); });
+  bindForm('shiftTbl', function () { return state.shifts; }, renderAll);
+  bindForm('siteTbl', function () { return state.sites; }, renderAll);
+  ['rMNormal', 'rMTotal', 'rMaxRun', 'rOtCap', 'rGap'].forEach(function (id) {
+    $(id).onchange = function () {
+      var key = { rMNormal: 'mNormal', rMTotal: 'mTotal', rMaxRun: 'maxRun', rOtCap: 'otCap', rGap: 'gap' }[id];
+      state.rules[key] = +$(id).value || 0; save(); renderGrid(); renderStats(); renderIssues();
+    };
+  });
+  function newPerson(o) {
+    state.seq = (state.seq || 0) + 1;
+    return { id: 'p' + state.seq, name: o.name || '新員工', title: o.title || '', shift: o.shift || (state.shifts[0] || {}).code, site: o.site || '', rule: o.rule === '一般' ? '一般' : '84-1', off: o.off === undefined ? 8 : o.off };
+  }
+  function ensureSite(name) { if (name && !state.sites.some(function (s) { return s.name === name; })) state.sites.push({ name: name, need: {} }); }
+  function shiftCode(v) { v = String(v || '').trim(); if (shiftOf(v)) return v; for (var i = 0; i < state.shifts.length; i++) if (state.shifts[i].name === v) return state.shifts[i].code; return v ? v.charAt(0) : ''; }
+  $('btnAddPerson').onclick = function () { state.people.push(newPerson({ site: $('fSite').value })); save(); renderAll(); $('peopleBox').open = true; };
+  $('btnAddShift').onclick = function () {
+    var c = '甲乙丙丁戊己庚'.split('').filter(function (x) { return !shiftOf(x); })[0];
+    state.shifts.push({ code: c, name: '新班別', start: '08:00', end: '17:00', rest: 60, normal: 8 }); save(); renderAll();
+  };
+  $('btnAddSite').onclick = function () { state.sites.push({ name: '新社區' + (state.sites.length + 1), need: {} }); save(); renderAll(); };
+  $('btnPaste').onclick = function () {
+    var lines = $('paste').value.split(/\r?\n/).filter(function (l) { return l.trim(); }), added = 0;
+    lines.forEach(function (l) {
+      var c = l.split(/\t|,/).map(function (x) { return x.trim(); });
+      if (!c[0] || c[0] === '姓名') return;
+      ensureSite(c[3]);
+      state.people.push(newPerson({ name: c[0], title: c[1], shift: shiftCode(c[2]) || undefined, site: c[3], rule: c[4], off: c[5] === undefined || c[5] === '' ? undefined : +c[5] }));
+      added++;
+    });
+    $('paste').value = ''; save(); renderAll(); showMsg('加入 ' + added + ' 人。');
+  };
+
+  // ── LINE 文字 ──
+  function openLine(p) {
+    if (!p) return;
+    var n = nDays(), groups = {}, order = [];
+    for (var d = 1; d <= n; d++) {
+      var x = cell(p.id, d), label;
+      if (!x) label = '未排';
+      else if (shiftOf(x.c)) { var s = shiftOf(x.c); label = s.name + ' ' + s.start + '–' + s.end + (x.s && x.s !== p.site ? '＠' + x.s : ''); }
+      else label = OFF[x.c] || x.c;
+      if (!groups[label]) { groups[label] = []; order.push(label); }
+      groups[label].push(d + '(' + WK[new Date(state.y, state.m - 1, d).getDay()] + ')');
+    }
+    var t = '【' + (state.y - 1911) + ' 年 ' + state.m + ' 月班表】' + p.name + (p.site ? '｜' + p.site : '') + '\n';
+    order.forEach(function (k) { t += '\n' + k + '（' + groups[k].length + ' 天）\n' + groups[k].join('、') + '\n'; });
+    t += '\n班表如需調整，請先和排班人員確認。';
+    $('lineText').value = t; $('copied').textContent = '';
+    $('lineDlg').showModal();
+  }
+  $('btnCopy').onclick = function () {
+    var ta = $('lineText');
+    function done() { $('copied').textContent = '已複製'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, function () { ta.select(); document.execCommand('copy'); done(); });
+    else { ta.select(); document.execCommand('copy'); done(); }
+  };
+
+  // ── 匯出：班表＋出勤紀錄（可直接丟進出勤管理儀表板）──
+  function buildWorkbook() {
+    var n = nDays(), P = filteredPeople(), wb = XLSX.utils.book_new(), roc = (state.y - 1911);
+    var head = ['姓名', '職稱', '班別', '社區', '規則', '月休'];
+    for (var d = 1; d <= n; d++) head.push(d);
+    head = head.concat(['上班天數', '月休排', '國', '正常工時', '加班時數']);
+    var aoa = [[roc + '/' + state.m, (roc) + ' 年 ' + state.m + ' 月班表'], head];
+    P.forEach(function (p) {
+      var s = checkPerson(p), r = [p.name, p.title, p.shift, p.site, p.rule, +p.off || 0];
+      for (var d = 1; d <= n; d++) { var v = row(p.id)[d]; r.push(v || ''); }
+      aoa.push(r.concat([s.work, s.rest, s.nat, +s.normal.toFixed(1), +s.ot.toFixed(1)]));
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), '班表');
+
+    var cov = [['社區', '班別', '需求'].concat(Array.from({ length: n }, function (_, i) { return i + 1; }))];
+    needRows().forEach(function (r) { var line = [r.site, r.code, r.need]; for (var d = 1; d <= n; d++) line.push(coverage(r.site, r.code, d)); cov.push(line); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cov), '人力檢核');
+
+    var iss = [['姓名', '等級', '內容']];
+    P.forEach(function (p) { checkPerson(p).issues.forEach(function (i) { iss.push([p.name, i[0] === 'bad' ? '違規' : '提醒', i[1]]); }); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(iss), '問題清單');
+
+    var sh = [['班別', '上班', '下班', '休息分鐘', '正常工時', '規則', '遲到寬限分鐘', '代碼']];
+    state.shifts.forEach(function (s) { sh.push([s.name, s.start, s.end, +s.rest || 0, +s.normal || 0, (+s.normal || 0) >= 10 ? '84-1' : '一般', 5, s.code]); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh), '班別設定');
+
+    // 出勤紀錄標準格式：B2 月份、第 3 列標題、每人 5 列（社區／上班／下班／加班／請假）
+    var att = [[], ['', roc + '/' + state.m, '', '月份現場人員出勤紀錄（由排班工具產生，上班／下班請照實填寫）'], ['', '職稱', '班別', '姓名', '項目']];
+    var wkRow = ['', '', '', '', ''];
+    for (var d2 = 1; d2 <= n; d2++) { att[2].push(d2); wkRow.push(WK[new Date(state.y, state.m - 1, d2).getDay()]); }
+    att.push(wkRow);
+    P.forEach(function (p) {
+      var shName = (shiftOf(p.shift) || {}).name || p.shift;
+      var rows5 = [['', p.title, shName, p.name, '社區'], ['', '', '', '', '上班'], ['', '', '', '', '下班'], ['', '', '', '', '加班'], ['', '', '', '', '請假']];
+      for (var d = 1; d <= n; d++) {
+        var x = cell(p.id, d), s = x && shiftOf(x.c);
+        rows5[0].push(s ? (x.s || p.site) : '');
+        rows5[1].push(''); rows5[2].push(''); rows5[3].push('');
+        rows5[4].push(x && x.c === '特' ? '特休' + ((shiftOf(p.shift) || {}).normal || 8) : '');
+      }
+      att = att.concat(rows5);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(att), roc + '年' + state.m + '月');
+    return wb;
+  }
+  $('btnExport').onclick = function () {
+    if (!state.people.length) return showMsg('還沒有人員可以匯出。', true);
+    XLSX.writeFile(buildWorkbook(), '排班_' + (state.y - 1911) + '年' + state.m + '月' + ($('fSite').value ? '_' + $('fSite').value : '') + '.xlsx');
+    showMsg('已匯出。檔案裡的「' + (state.y - 1911) + '年' + state.m + '月」工作表就是出勤紀錄格式，月底填上下班時間後，可以直接丟進出勤管理儀表板。');
+  };
+
+  // ── 匯入：讀回本工具匯出的「班表」工作表，或任何有「姓名」欄的人員清單 ──
+  $('btnImport').onclick = function () { $('file').click(); };
+  $('file').onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    var fr = new FileReader();
+    fr.onload = function () {
+      try { importWorkbook(XLSX.read(new Uint8Array(fr.result), { type: 'array' })); }
+      catch (err) { showMsg('讀不到這個檔案：' + esc(err.message), true); }
+      e.target.value = '';
+    };
+    fr.readAsArrayBuffer(f);
+  };
+  function importWorkbook(wb) {
+    var name = wb.SheetNames.indexOf('班表') >= 0 ? '班表' : wb.SheetNames[0];
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
+    var hr = -1;
+    for (var i = 0; i < Math.min(rows.length, 20); i++) if (rows[i].some(function (v) { return String(v).trim() === '姓名'; })) { hr = i; break; }
+    if (hr < 0) throw new Error('找不到「姓名」欄。');
+    var head = rows[hr].map(function (v) { return String(v).trim(); });
+    var col = function (k) { return head.indexOf(k); };
+    var ym = null;
+    for (var r0 = 0; r0 < hr; r0++) rows[r0].forEach(function (v) { var m = String(v).match(/^(\d{2,3})\s*[\/年]\s*(\d{1,2})/); if (m && !ym) ym = { y: +m[1] + 1911, m: +m[2] }; });
+    if (ym) { state.y = ym.y; state.m = ym.m; }
+    var dayCol = {};
+    head.forEach(function (v, c) { var n = +v; if (v !== '' && n >= 1 && n <= 31 && n === Math.floor(n)) dayCol[n] = c; });
+    var added = 0, updated = 0;
+    rows.slice(hr + 1).forEach(function (r) {
+      var nm = String(r[col('姓名')] || '').trim(); if (!nm) return;
+      var site = col('社區') >= 0 ? String(r[col('社區')]).trim() : '';
+      ensureSite(site);
+      var p = state.people.filter(function (x) { return x.name === nm; })[0];
+      var o = { name: nm, title: col('職稱') >= 0 ? String(r[col('職稱')]).trim() : '', shift: col('班別') >= 0 ? shiftCode(r[col('班別')]) : '', site: site,
+        rule: col('規則') >= 0 ? String(r[col('規則')]).trim() : '84-1', off: col('月休') >= 0 && r[col('月休')] !== '' ? +r[col('月休')] : 8 };
+      if (o.shift && !shiftOf(o.shift)) o.shift = (state.shifts[0] || {}).code;
+      if (p) { Object.keys(o).forEach(function (k) { if (o[k] !== '' && o[k] !== undefined) p[k] = o[k]; }); updated++; }
+      else { p = newPerson(o); state.people.push(p); added++; }
+      Object.keys(dayCol).forEach(function (d) { var v = String(r[dayCol[d]] || '').trim(); if (v) row(p.id)[d] = v; });
+    });
+    save(); renderAll();
+    showMsg('匯入完成：新增 ' + added + ' 人、更新 ' + updated + ' 人' + (Object.keys(dayCol).length ? '，並讀入 ' + (state.y - 1911) + ' 年 ' + state.m + ' 月班表' : '') + '。');
+  }
+
+  // ── 範例（假資料）──
+  $('btnSample').onclick = function () {
+    var keepYm = { y: state.y, m: state.m };
+    state = defaults(); state.y = keepYm.y; state.m = keepYm.m;
+    state.sites = [{ name: '測試社區A', need: { '日': 2, '夜': 1 } }, { name: '測試大樓B', need: { '日': 1, '夜': 1 } }];
+    var list = [
+      ['範例員工01', '日班保全', '日', '測試社區A', '84-1', 8], ['範例員工02', '日班保全', '日', '測試社區A', '84-1', 8], ['範例員工03', '日班保全', '日', '測試社區A', '84-1', 6],
+      ['範例員工04', '夜班保全', '夜', '測試社區A', '84-1', 8], ['範例員工05', '夜班保全', '夜', '測試社區A', '84-1', 10],
+      ['範例員工06', '日班保全', '日', '測試大樓B', '84-1', 8], ['範例員工07', '日班保全', '日', '測試大樓B', '84-1', 8],
+      ['範例員工08', '夜班保全', '夜', '測試大樓B', '84-1', 8], ['範例員工09', '夜班保全', '夜', '測試大樓B', '84-1', 8],
+      ['範例員工10', '勤務主任', '辦', '測試社區A', '一般', 9]
+    ];
+    list.forEach(function (c) { state.people.push(newPerson({ name: c[0], title: c[1], shift: c[2], site: c[3], rule: c[4], off: c[5] })); });
+    // 預排休：員工01 想在 10、11 日休，員工06 特休 3 日
+    row('p1')[10] = '休'; row('p1')[11] = '休'; row('p6')[3] = '特';
+    save(); renderAll();
+    showMsg('已載入假資料：2 個社區、10 個人（含預排休）。按「自動排班」看看。');
+  };
+
+  load(); renderAll();
+</script>
+</body>
+</html>
