@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人資小工具組</title>
+<link rel="stylesheet" href="lib/common.css">
+<style>
+  .wrap { max-width: 960px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  a.tool { display: block; text-decoration: none; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  a.tool:hover { border-color: var(--accent); }
+  a.tool b { display: block; font-size: 16px; color: var(--accent); margin-bottom: 4px; }
+  a.tool span { color: var(--muted); font-size: 14px; }
+  ul { margin: 6px 0 0; padding-left: 20px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>人資小工具組</h1>
+  <p class="sub">物業／保全公司人資用的小工具。資料只在你自己的瀏覽器裡計算，不會上傳。</p>
+
+  <div class="card">
+    <h2>先試玩</h2>
+    <ul>
+      <li>點下面任一工具，把 <a href="https://github.com/bblawyer918/hr-tools/tree/main/samples">samples 資料夾</a>裡「測試假資料_…」的檔案下載後拖進去。</li>
+      <li>假資料全部是虛構人名、公司、社區。</li>
+      <li>要用真實資料，建議<a href="https://github.com/bblawyer918/hr-tools/archive/refs/heads/main.zip">下載整包</a>到自己電腦離線使用。</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+    <a class="tool" href="schedule/排班設計工具.html"><b>排班設計工具</b><span>自動排班、檢查人力與工時、匯出 Excel</span></a>
+    <a class="tool" href="weekly-schedule/排班週報.html"><b>排班週報</b><span>一週一社區的班表、每人工時、複製 LINE 訊息</span></a>
+    <a class="tool" href="attendance/出勤管理儀表板.html"><b>出勤管理儀表板</b><span>遲到、早退、缺卡、曠職、加班、請假日曆</span></a>
+    <a class="tool" href="morning-report/每日出勤晨報.html"><b>每日出勤晨報</b><span>今天誰請假、誰遲到、昨天的異常</span></a>
+    <a class="tool" href="turnover/人才流動洞察.html"><b>人才流動洞察</b><span>離職率、社區流動、年資結構、留任率</span></a>
+    <a class="tool" href="training/回訓人員管理.html"><b>回訓人員管理</b><span>保全、職安、急救、防火管理人等回訓到期提醒</span></a>
+    <a class="tool" href="approvals/簽核追蹤日報.html"><b>簽核追蹤日報</b><span>卡在誰手上、等了幾天、複製催簽訊息</span></a>
+    <a class="tool" href="payroll/薪資計算.html"><b>薪資計算</b><span>勞健保、勞退、代扣、雇主負擔</span></a>
+  </div>
+</div>
+</body>
+</html>
